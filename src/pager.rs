@@ -1,6 +1,7 @@
 use std::{
     cell::RefCell,
-    fs::File,
+    char::MAX,
+    fs::{self, File, OpenOptions},
     io::{Read, Seek, Write},
     mem::size_of,
 };
@@ -28,7 +29,7 @@ pub const HEADER_SIZE: usize = NODE_KEY_COUNT_OFFSET + NODE_KEY_COUNT_SIZE;
 
 type PagerFile = RefCell<File>;
 
-struct Pager {
+pub struct Pager {
     nodes_file: PagerFile,
     values_file: PagerFile,
     max_page_id: usize,
@@ -119,18 +120,16 @@ impl Pager {
         file.write_all(&[0; PAGE_SIZE])
             .map_err(map_err(Error::CantWriteValue))?;
 
-        let ret = self.max_page_id;
-
         self.max_page_id += 1;
 
-        Ok(ret)
+        Ok(self.max_page_id)
     }
 
     pub fn read_node(&self, page_id: usize) -> InternalResult<Node> {
         let mut page = [0; PAGE_SIZE];
         let mut file = self.nodes_file.borrow_mut();
 
-        file.seek(std::io::SeekFrom::Start((PAGE_SIZE * page_id) as u64))
+        file.seek(std::io::SeekFrom::Start((PAGE_SIZE * (page_id - 1)) as u64))
             .map_err(map_err(Error::CantGetNode(page_id)))?;
 
         file.read_exact(&mut page)
@@ -201,40 +200,67 @@ impl Pager {
         let mut page = self.transfer_node_to_bytes(node)?;
         let mut file = self.nodes_file.borrow_mut();
 
-        file.seek(std::io::SeekFrom::Start((PAGE_SIZE * node.page_id) as u64))
-            .map_err(map_err(Error::CantWriteNode(node.page_id)))?;
+        file.seek(std::io::SeekFrom::Start(
+            (PAGE_SIZE * (node.page_id - 1)) as u64,
+        ))
+        .map_err(map_err(Error::CantWriteNode(node.page_id)))?;
 
         file.write_all(&page)
             .map_err(map_err(Error::CantWriteNode(node.page_id)))?;
         Ok(())
     }
+    pub fn get_node_max_key(&self, page_id: usize) -> InternalResult<String> {
+        let mut page = [0; PAGE_SIZE];
+        let mut file = self.nodes_file.borrow_mut();
+
+        file.seek(std::io::SeekFrom::Start((PAGE_SIZE * (page_id - 1)) as u64))
+            .map_err(map_err(Error::CantGetNode(page_id)))?;
+
+        file.read_exact(&mut page)
+            .map_err(map_err(Error::CantGetNode(page_id)))?;
+
+        let key_count = usize::from_be_bytes(
+            (&page[NODE_KEY_COUNT_OFFSET..NODE_KEY_COUNT_OFFSET + NODE_KEY_COUNT_SIZE])
+                .try_into()
+                .map_err(map_err(Error::CantGetNode(page_id)))?,
+        );
+
+        let key_start = (key_count - 1) * MAX_KEY_SIZE;
+
+        Ok(
+            String::from_utf8(page[key_start..MAX_KEY_SIZE + key_start].to_vec())
+                .map_err(map_err(Error::CantGetNode(page_id)))?,
+        )
+    }
+}
+#[cfg(test)]
+pub fn delete_file(file_path: &'static str) -> Option<()> {
+    if fs::metadata(&file_path).is_ok() {
+        fs::remove_file(&file_path).ok()?;
+    }
+    Some(())
 }
 
 #[cfg(test)]
+pub fn create_pager() -> Pager {
+    let (nodes_file_name, vlaues_file_name) = ("nodes_test_file.bin", "values_test_file.bin");
+
+    delete_file(nodes_file_name).unwrap();
+    delete_file(vlaues_file_name).unwrap();
+
+    let mut file_options = OpenOptions::new();
+    file_options.read(true).write(true).create(true);
+
+    let nodes_file = file_options.open(&nodes_file_name).unwrap();
+    let values_file = file_options.open(&vlaues_file_name).unwrap();
+
+    Pager::new(nodes_file, values_file)
+}
+#[cfg(test)]
 mod tests {
-    use std::fs::{self, OpenOptions};
 
     use super::*;
-    fn delete_file(file_path: &'static str) -> Option<()> {
-        if fs::metadata(&file_path).is_ok() {
-            fs::remove_file(&file_path).ok()?;
-        }
-        Some(())
-    }
-    fn create_pager() -> Pager {
-        let (nodes_file_name, vlaues_file_name) = ("nodes_test_file.bin", "values_test_file.bin");
 
-        delete_file(nodes_file_name).unwrap();
-        delete_file(vlaues_file_name).unwrap();
-
-        let mut file_options = OpenOptions::new();
-        file_options.read(true).write(true).create(true);
-
-        let nodes_file = file_options.open(&nodes_file_name).unwrap();
-        let values_file = file_options.open(&vlaues_file_name).unwrap();
-
-        Pager::new(nodes_file, values_file)
-    }
     #[test]
     fn test_can_create_pager() {
         create_pager();
@@ -255,21 +281,21 @@ mod tests {
     }
 
     #[test]
-    fn test_node_read_write(){
-        let mut pager=create_pager();
-        let node_page_id=pager.new_page().expect("cant create new page");
-        let node=Node{ 
-            parent_page_id: 10, 
-            page_id: node_page_id, 
-            keys: vec!["1".to_string(),"2".to_string(),"4".to_string()],
-            values: vec![3,9,1], 
-            is_leaf: true 
+    fn test_node_read_write() {
+        let mut pager = create_pager();
+        let node_page_id = pager.new_page().expect("cant create new page");
+        let node = Node {
+            parent_page_id: 10,
+            page_id: node_page_id,
+            keys: vec!["1".to_string(), "2".to_string(), "4".to_string()],
+            values: vec![3, 9, 1],
+            is_leaf: true,
         };
 
         pager.write_node(&node).expect("cant write node");
 
-        let read_node=pager.read_node(node_page_id).expect("cant read node");
+        let read_node = pager.read_node(node_page_id).expect("cant read node");
 
-        assert_eq!(node,read_node)
+        assert_eq!(node, read_node)
     }
 }
