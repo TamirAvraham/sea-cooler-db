@@ -11,8 +11,8 @@ use crate::{
     node::{self, Node, MAX_KEY_SIZE},
 };
 
-const PAGE_SIZE: usize = 1024 * 4;
-const SIZE_OF_USIZE: usize = size_of::<usize>();
+pub const PAGE_SIZE: usize = 1024 * 4;
+pub const SIZE_OF_USIZE: usize = size_of::<usize>();
 const EMPTY_PAGE: [u8; PAGE_SIZE] = [0; PAGE_SIZE];
 /*
 value structure
@@ -28,7 +28,7 @@ pub const NODE_KEY_COUNT_OFFSET: usize = NODE_PARENT_OFFSET + NODE_PARENT_SIZE;
 pub const HEADER_SIZE: usize = NODE_KEY_COUNT_OFFSET + NODE_KEY_COUNT_SIZE;
 
 type PagerFile = RefCell<File>;
-
+#[derive(Debug)]
 pub struct Pager {
     nodes_file: PagerFile,
     values_file: PagerFile,
@@ -43,7 +43,6 @@ impl Pager {
 
     #[inline]
     fn transfer_node_to_bytes(&self, node: &Node) -> InternalResult<[u8; PAGE_SIZE]> {
-        println!("got this node to transer 2 bytes {:?}",node);
         let mut page = [0; PAGE_SIZE];
         page[NODE_TYPE_OFFSET] = match node.is_leaf {
             true => 0x01,

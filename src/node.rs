@@ -84,8 +84,12 @@ impl Node {
         while i < self.keys.len() && self.keys[i] < key {
             i += 1;
         }
-
-        self.values.get(i)
+        if self.is_leaf && self.keys[i]==key {
+            return Some(&self.values[i]);
+        } else {
+            self.values.get(i)
+        }
+        
     }
     pub fn split(&mut self, pager: &mut Pager, t: usize) -> InternalResult<Node> {
         let new_node_keys = self.keys.split_off(t);
