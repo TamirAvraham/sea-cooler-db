@@ -43,6 +43,7 @@ impl Pager {
 
     #[inline]
     fn transfer_node_to_bytes(&self, node: &Node) -> InternalResult<[u8; PAGE_SIZE]> {
+        println!("got this node to transer 2 bytes {:?}",node);
         let mut page = [0; PAGE_SIZE];
         page[NODE_TYPE_OFFSET] = match node.is_leaf {
             true => 0x01,

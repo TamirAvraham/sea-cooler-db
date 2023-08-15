@@ -12,7 +12,8 @@ pub enum Error {
     CantGetNode(usize),
     CantWriteNode(usize),
     CantWriteCacheToDisk((usize,usize)),
-    CantGetValue
+    CantGetValue,
+    BorrowError(usize)
 }
 
 pub type InternalResult<T>=Result<T,Error>;
