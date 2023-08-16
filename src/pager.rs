@@ -124,7 +124,15 @@ impl Pager {
 
         Ok(self.max_page_id)
     }
+    pub fn delete_node(&mut self,page_id: usize)->InternalResult<()>{
+        let mut file = self.nodes_file.borrow_mut();
 
+        file.seek(std::io::SeekFrom::Start((PAGE_SIZE * (page_id - 1)) as u64))
+            .map_err(map_err(Error::CantGetNode(page_id)))?;
+
+        file.write_all(&EMPTY_PAGE).map_err(map_err(Error::CantGetNode(page_id)))?;
+        Ok(())
+    }
     pub fn read_node(&self, page_id: usize) -> InternalResult<Node> {
         let mut page = [0; PAGE_SIZE];
         let mut file = self.nodes_file.borrow_mut();

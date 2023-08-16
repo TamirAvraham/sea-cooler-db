@@ -14,6 +14,7 @@ pub enum Error {
     CantWriteCacheToDisk((usize,usize)),
     CantGetValue,
     BorrowError(usize),
+    MergeError(usize),
     InvalidArguments,
     FileError
 }
