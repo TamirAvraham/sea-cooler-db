@@ -151,13 +151,50 @@ impl BPlusTree {
     pub fn search(&self,key:String)->InternalResult<Option<String>>{
         Self::search_internal(key, &self.pager, self.root_page_id)
     }
+
+    fn delete_node(
+        key: String,
+        pager: &mut Pager,
+        node_page_id:usize,
+    ) -> Result<(), Error> {
+        let mut i = 0;
+        let mut node=pager.read_node(node_page_id)?;
+
+        match node.is_leaf {
+            true => {
+                if let Some(value_location) = node.get(key) {
+                    pager.delete_value(node.values[i])?;
+
+                    node.keys.remove(i);
+                    node.values.remove(i);
+                    
+                    pager.write_node(&node)?;
+                }
+            }
+            false => {
+                if let Some(node_page_id) = node.get(key.clone()) {
+                    return Self::delete_node(key, pager, *node_page_id)
+                }
+                return Ok(());
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn delete(&mut self, key: String) -> Result<(), Error> {
+        Self::delete_node(
+            key,
+            &mut self.pager,
+            self.root_page_id,
+        )
+    }
 }
 
 
 #[cfg(test)]
 mod tests{
-    use std::fs;
-
+    use std::{path::Path, fs::{OpenOptions, self, File}, env};
     use crate::pager::delete_file;
 
     use super::*;
@@ -165,6 +202,23 @@ mod tests{
         let _ = fs::remove_file("temp.nodes.mbpt");
         let _ = fs::remove_file("temp.value.mbpt");
         
+    }
+    const TEST_FILE_NODES: &str = "test_nodes.bin";
+    const TEST_FILE_VALUES: &str = "test_values.bin";
+    fn create_test_files() -> Result<(File, File), Error> {
+        let nodes_file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(TEST_FILE_NODES)
+            .map_err(|_| Error::FileError)?;
+        let values_file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(TEST_FILE_VALUES)
+            .map_err(|_| Error::FileError)?;
+        Ok((nodes_file, values_file))
     }
     #[test]
     fn test_insert_and_search() {
@@ -221,4 +275,89 @@ mod tests{
 
 
     }
+
+    #[test]
+    fn test_delete() {
+        let path="temp".to_string();
+        let mut tree=BTreeBulider::new().path(path.clone()).t(2).build().unwrap();
+
+        let range=5;
+        (1..=range).for_each(|i| {
+            println!("inserting i:{}",i);
+            let key=format!("key_{}",i);
+            let value=format!("value_{}",i);
+            let err_msg=format!("error when inserting i:{}",i);
+            tree.insert(key, value).expect(&err_msg);
+            tree.print();
+            println!("_____________________________________________________________________________________________");
+        });
+        tree.print();
+        (1..=range).for_each(|i| {
+            let key=format!("key_{}",i);
+            let value=format!("value_{}",i);
+            let err_msg=format!("error when serching for i:{}",i);
+            let res=tree.search(key).expect(&err_msg);
+            assert_eq!(res,Some(value))
+        });
+
+        // Delete a key
+        tree.delete("key2".to_string()).unwrap();
+        assert_eq!(tree.search("key2".to_string()).unwrap(), None);
+
+        // Attempt to delete a non-existent key
+        tree.delete("key4".to_string()).unwrap();
+        assert_eq!(tree.search("key4".to_string()).unwrap(), None);
+    }
+
+    fn test_rebalance() {
+        let (nodes_file,values_file)=create_test_files().unwrap();
+        let mut pager = Pager::new(nodes_file,values_file);
+        let t = 2;
+    
+        // Create nodes to test rebalancing
+        let mut node1 = Node {
+            is_leaf: true,
+            keys: vec!["key1".to_string(), "key3".to_string()],
+            values: vec![1, 2],
+            parent_page_id: 0,
+            page_id: 0,
+        };
+    
+        let mut node2 = Node {
+            is_leaf: true,
+            keys: vec!["key5".to_string(), "key7".to_string()],
+            values: vec![3, 4],
+            parent_page_id: 0,
+            page_id: 0,
+        };
+    
+        let mut parent = Node {
+            is_leaf: false,
+            keys: vec!["key4".to_string()],
+            values: vec![0, 5],
+            parent_page_id: 0,
+            page_id: 0,
+        };
+    
+        // Ensure that node 1 and node 2 are updated
+        let updated_node1 = Node{
+            is_leaf: true,
+            keys: vec!["key1".to_string(), "key3".to_string()],
+            values: vec![1, 2],
+            parent_page_id: 0,
+            page_id: 0,
+        };
+        let updated_node2 = Node {
+            is_leaf: true,
+            keys: vec!["key5".to_string(), "key7".to_string()],
+            values: vec![3, 4],
+            parent_page_id: 0,
+            page_id: 0,
+        };
+        assert_eq!(updated_node1.keys, vec!["key3".to_string()]);
+        assert_eq!(updated_node1.values, vec![2]);
+        assert_eq!(updated_node2.keys, vec!["key5".to_string(), "key7".to_string()]);
+        assert_eq!(updated_node2.values, vec![3, 4]);
+    }
+
 }

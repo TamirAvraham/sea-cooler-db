@@ -111,6 +111,61 @@ impl Pager {
         Ok(ret as usize)
     }
 
+    pub fn delete_value(&mut self, offset: usize) -> Result<(), Error> {
+        let mut file = self.values_file.borrow_mut();
+        let mut value_len_as_bytes = [0; SIZE_OF_USIZE];
+
+        file.seek(std::io::SeekFrom::Start(offset as u64)).map_err(|_| Error::FileError)?;
+        file.read_exact(&mut value_len_as_bytes).map_err(|_| Error::FileError)?;
+
+        let value_len: usize = usize::from_be_bytes(value_len_as_bytes);
+        let new_empty_value = vec![0; value_len];
+        file.seek(std::io::SeekFrom::Start((offset + SIZE_OF_USIZE) as u64)).map_err(|_| Error::FileError)?;
+
+        file.write_all(&new_empty_value).map_err(|_| Error::FileError)?;
+        Ok(())
+    }
+
+    pub fn rebalance(pager: &mut Pager, node: &mut Node, t: usize) -> Result<(), Error> {
+        let mut parent = node.get_parent(pager).unwrap();
+        
+        if parent.is_leaf {
+            return Err(Error::ParentError);
+        }
+
+        let node_index_in_parent;
+        if node.keys.is_empty()&&node.values.is_empty(){
+            node_index_in_parent = 0;
+
+        } else {
+            let key = node.keys.last().unwrap().clone();
+
+            let mut i = 0;
+            while parent.keys.len() > i && parent.keys[i] < key {
+                i += 1
+            }
+            node_index_in_parent=i;
+        }
+
+        
+
+        let sibling_page_id_index;
+        let smaller_index;
+
+        match parent.keys.len().saturating_sub(1) == node_index_in_parent {
+            true => {
+                sibling_page_id_index = node_index_in_parent - 1;
+                smaller_index=sibling_page_id_index
+            }
+            false => {
+                sibling_page_id_index = node_index_in_parent + 1;
+                smaller_index = node_index_in_parent;
+            }
+        }
+
+        return Ok(());
+    }
+
     pub fn new_page(&mut self) -> InternalResult<usize> {
         let mut file = self.nodes_file.borrow_mut();
 

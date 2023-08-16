@@ -16,7 +16,8 @@ pub enum Error {
     BorrowError(usize),
     MergeError(usize),
     InvalidArguments,
-    FileError
+    FileError,
+    ParentError
 }
 
 pub type InternalResult<T>=Result<T,Error>;
