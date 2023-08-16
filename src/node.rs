@@ -84,8 +84,8 @@ impl Node {
         while i < self.keys.len() && self.keys[i] < key {
             i += 1;
         }
-        if self.is_leaf && self.keys[i]==key {
-            return Some(&self.values[i]);
+        if self.is_leaf && self.keys[i]!=key{
+            None
         } else {
             self.values.get(i)
         }

@@ -214,8 +214,8 @@ mod tests{
             assert_eq!(res,Some(value))
         });
 
-
-        
+        let res=tree.search("bonzo".to_string()).expect("fuck");
+        assert_eq!(res,None);
 
         cleanup_temp_files();
 
