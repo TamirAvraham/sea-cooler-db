@@ -17,7 +17,8 @@ pub enum Error {
     MergeError(usize),
     InvalidArguments,
     FileError,
-    ParentError
+    ParentError,
+    MovingCacheError(usize),
 }
 
 pub type InternalResult<T>=Result<T,Error>;
