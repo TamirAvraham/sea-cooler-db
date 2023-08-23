@@ -1,7 +1,7 @@
 use std::{fs::File, sync::{RwLock, RwLockWriteGuard}, io::{Write, Read, Seek, SeekFrom}, cell::Cell};
 
 use crate::{pager::PAGE_SIZE, error::{InternalResult, map_err, Error}};
-
+const EMPTY_PAGE:[u8;PAGE_SIZE]=[0;PAGE_SIZE];
 
 struct FileCache {
     file:RwLock<File>,
@@ -19,12 +19,14 @@ impl FileCache {
 
         if curent_file_page_count < page_size {
             let new_page_count=page_size-curent_file_page_count;
-            let mut new_pages=vec![0;new_page_count*PAGE_SIZE];
-            file.write_all(&mut new_pages).unwrap();
-            file.flush().unwrap();
+            for _ in 0..new_page_count {
+                file.write_all(&EMPTY_PAGE).unwrap();
+            }
         }
-        let curent_file_page_count = (file.metadata().unwrap().len() as usize)/PAGE_SIZE;//remove
-        let mut cache=vec![0;page_size*PAGE_SIZE];
+        let len = file.metadata().unwrap().len() as usize;
+        let curent_file_page_count = (len)/PAGE_SIZE;//remove
+        let mut cache=vec![0;PAGE_SIZE*page_size];
+        file.seek(SeekFrom::Start(0)).unwrap();
         file.read_exact(&mut cache).unwrap();
         
         Self{
@@ -66,8 +68,11 @@ impl FileCache {
                 file.read_exact(&mut new_cache).map_err(map_err(Error::MovingCacheError(start)))?;
             } 
             new_cache.extend(vec![0;new_page_count*PAGE_SIZE]);
+            self.curent_file_page_count.set(start+self.page_size);
+
 
             new_cache
+
            
         } else {
             file.seek(SeekFrom::Start(start as u64)).map_err(map_err(Error::MovingCacheError(start)))?;
@@ -108,7 +113,8 @@ mod tests{
         assert_eq!(cache.curent_file_page_count.get(),5);
         cache.move_cache(10).unwrap();
         assert_eq!(cache.curent_file_page_count.get(),15);
-
+        cache.move_cache(0).unwrap();
+        assert_eq!(cache.curent_file_page_count.get(),15);
 
     }
 }
