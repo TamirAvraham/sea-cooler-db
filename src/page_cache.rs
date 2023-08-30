@@ -196,7 +196,21 @@ impl FileCache {
 
         Ok(())
     }
+    pub fn delete_page(&mut self,page_id: usize)->InternalResult<()>{
+        let mut cache=self.cache.write().map_err(map_err(Error::CantDeletePage(page_id)))?;
+        let relative_id=if let Some(page_id) = self.relative_id(page_id) {
+            page_id
+        }else{
+            self.move_cache(page_id, &mut cache)?;
+            0
+        };
 
+        cache[relative_id..relative_id+PAGE_SIZE].copy_from_slice(&EMPTY_PAGE);
+        Ok(())
+    }
+    pub fn delete_node(&mut self,node: &Node)->InternalResult<()>{
+        self.delete_page(node.page_id).map_err(map_err(Error::CantDeleteNode(node.page_id)))
+    }
     pub fn read_node(&self,page_id: usize)->InternalResult<Node>{
         let relative_id=if let Some(page_id) = self.relative_id(page_id) {
             page_id
@@ -401,4 +415,6 @@ mod tests {
 
         assert_eq!(new_node,node_from_file)
     }
+
+    
 }

@@ -19,6 +19,9 @@ pub enum Error {
     FileError,
     ParentError,
     MovingCacheError(usize),
+    CantDeletePage(usize),
+    CantDeleteNode(usize),
+
 }
 
 pub type InternalResult<T>=Result<T,Error>;
