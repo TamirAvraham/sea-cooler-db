@@ -7,57 +7,60 @@ use std::{
 
 use crate::{
     error::{map_err, Error, InternalResult},
-    pager::{PAGE_SIZE, NODE_TYPE_OFFSET, NODE_PARENT_OFFSET, NODE_PARENT_SIZE, NODE_KEY_COUNT_OFFSET, NODE_KEY_COUNT_SIZE, HEADER_SIZE, SIZE_OF_USIZE}, node::{Node, MAX_KEY_SIZE},
+    node::{Node, MAX_KEY_SIZE},
+    pager::{
+        HEADER_SIZE, NODE_KEY_COUNT_OFFSET, NODE_KEY_COUNT_SIZE, NODE_PARENT_OFFSET,
+        NODE_PARENT_SIZE, NODE_TYPE_OFFSET, PAGE_SIZE, SIZE_OF_USIZE,
+    },
 };
 const EMPTY_PAGE: [u8; PAGE_SIZE] = [0; PAGE_SIZE];
-
-struct FileCache {
+#[derive(Debug)]
+pub struct FileCache {
     file: RwLock<File>,
     page_size: usize,
     cache: RwLock<Vec<u8>>,
     start: Cell<usize>,
     end: Cell<usize>,
     current_file_page_count: Cell<usize>,
-    empty_pages:Vec<usize>
+    empty_pages: Vec<usize>,
 }
 
 impl FileCache {
     #[cfg(test)]
-    fn get_page_for_tests(&self,page_id: usize)->Vec<u8> {
+    fn get_page_for_tests(&self, page_id: usize) -> Vec<u8> {
         return if let Some(id) = self.relative_id(page_id) {
-            let cache=self.cache.read().unwrap();
-            cache[id..id+PAGE_SIZE].to_vec()
-        }else{
-            let mut cache=self.cache.write().unwrap();
+            let cache = self.cache.read().unwrap();
+            cache[id..id + PAGE_SIZE].to_vec()
+        } else {
+            let mut cache = self.cache.write().unwrap();
             self.move_cache(page_id, &mut cache).unwrap();
             cache[0..PAGE_SIZE].to_vec()
-        }
+        };
     }
     pub fn new(page_size: usize, mut file: File) -> Self {
         let current_file_page_count = (file.metadata().unwrap().len() as usize) / PAGE_SIZE;
 
-        let mut empty_page_ids=vec![];
-        
+        let mut empty_page_ids = vec![];
+
         if current_file_page_count < page_size {
-            
             let new_page_count = page_size - current_file_page_count;
 
             for _ in 0..new_page_count {
                 file.write_all(&EMPTY_PAGE).unwrap();
             }
 
-            for page_id in (new_page_count-1..=page_size-1){
-                empty_page_ids.push(page_id)//mybe make this cleaner
+            for page_id in (new_page_count - 1..=page_size - 1) {
+                empty_page_ids.push(page_id) //mybe make this cleaner
             }
         }
         let current_file_page_count = (file.metadata().unwrap().len() as usize) / PAGE_SIZE;
-        
+
         file.seek(SeekFrom::Start(0)).unwrap();
-        for page_id in 0..current_file_page_count{
-            let mut page=EMPTY_PAGE;
+        for page_id in 0..current_file_page_count {
+            let mut page = EMPTY_PAGE;
             file.read_exact(&mut page).unwrap();
 
-            if page==EMPTY_PAGE {
+            if page == EMPTY_PAGE {
                 empty_page_ids.push(page_id)
             }
         }
@@ -71,7 +74,7 @@ impl FileCache {
             page_size,
             cache: RwLock::new(cache),
             start: Cell::new(0),
-            end: Cell::new(page_size-1),
+            end: Cell::new(page_size - 1),
             current_file_page_count: Cell::new(current_file_page_count),
             empty_pages: empty_page_ids,
         }
@@ -102,21 +105,18 @@ impl FileCache {
         Ok(page)
     }
     #[inline]
-    fn relative_id(&self,page_id: usize)->Option<usize> {
-        let (start,end)=(self.start.get(),self.end.get());
-        if page_id>=start&&page_id<=end { //start<page_id<end?
+    fn relative_id(&self, page_id: usize) -> Option<usize> {
+        let (start, end) = (self.start.get(), self.end.get());
+        if page_id >= start && page_id <= end {
+            //start<page_id<end?
             //16,12,14,5,2
-            Some(page_id-start)
-        }
-        else {
+            Some(page_id - start)
+        } else {
             None
         }
     }
     #[inline]
-    fn write_cache_to_file(
-        &self,
-        cache: &mut RwLockWriteGuard<'_, Vec<u8>>,
-    ) -> InternalResult<()> {
+    fn write_cache_to_file(&self, cache: &mut RwLockWriteGuard<'_, Vec<u8>>) -> InternalResult<()> {
         let mut file = self
             .file
             .write()
@@ -128,7 +128,11 @@ impl FileCache {
         file.write_all(&cache).map_err(map_err(Error::FileError))?;
         Ok(())
     }
-    pub fn move_cache(&self, start: usize,cache: &mut RwLockWriteGuard<'_, Vec<u8>>) -> InternalResult<()> {
+    pub fn move_cache(
+        &self,
+        start: usize,
+        cache: &mut RwLockWriteGuard<'_, Vec<u8>>,
+    ) -> InternalResult<()> {
         self.write_cache_to_file(cache)?;
 
         let mut file = self
@@ -174,75 +178,87 @@ impl FileCache {
         Ok(())
     }
 
-    pub fn write_node(&mut self,node:&Node)->InternalResult<()>{
-        let mut cache=self.cache.write()
+    pub fn write_node(&mut self, node: &Node) -> InternalResult<()> {
+        let mut cache = self
+            .cache
+            .write()
             .map_err(map_err(Error::CantWriteNode(node.page_id)))?;
 
-        let relative_id=if let Some(page_id) = self.relative_id(node.page_id) {
+        let relative_id = if let Some(page_id) = self.relative_id(node.page_id) {
             page_id
-        } else{
+        } else {
             self.move_cache(node.page_id, &mut cache)?;
             0
         };
 
         //critical section
         {
-            let mut file=self.file.write()
+            let mut file = self
+                .file
+                .write()
                 .map_err(map_err(Error::CantWriteNode(node.page_id)))?;
-            cache[relative_id..relative_id+PAGE_SIZE].copy_from_slice(&self.transfer_node_to_bytes(node)?);
+            cache[relative_id..relative_id + PAGE_SIZE]
+                .copy_from_slice(&self.transfer_node_to_bytes(node)?);
         }
-        
+
         self.write_cache_to_file(&mut cache)?;
 
         Ok(())
     }
-    pub fn delete_page(&mut self,page_id: usize)->InternalResult<()>{
-        let mut cache=self.cache.write().map_err(map_err(Error::CantDeletePage(page_id)))?;
-        let relative_id=if let Some(page_id) = self.relative_id(page_id) {
+    pub fn delete_page(&mut self, page_id: usize) -> InternalResult<()> {
+        let mut cache = self
+            .cache
+            .write()
+            .map_err(map_err(Error::CantDeletePage(page_id)))?;
+        let relative_id = if let Some(page_id) = self.relative_id(page_id) {
             page_id
-        }else{
+        } else {
             self.move_cache(page_id, &mut cache)?;
             0
         };
 
-        cache[relative_id..relative_id+PAGE_SIZE].copy_from_slice(&EMPTY_PAGE);
+        cache[relative_id..relative_id + PAGE_SIZE].copy_from_slice(&EMPTY_PAGE);
         Ok(())
     }
-    pub fn delete_node(&mut self,node: &Node)->InternalResult<()>{
-        self.delete_page(node.page_id).map_err(map_err(Error::CantDeleteNode(node.page_id)))
+    pub fn delete_node(&mut self, node: &Node) -> InternalResult<()> {
+        self.delete_page(node.page_id)
+            .map_err(map_err(Error::CantDeleteNode(node.page_id)))
     }
-    pub fn read_node(&self,page_id: usize)->InternalResult<Node>{
-        let relative_id=if let Some(page_id) = self.relative_id(page_id) {
+    pub fn read_node(&self, page_id: usize) -> InternalResult<Node> {
+        let relative_id = if let Some(page_id) = self.relative_id(page_id) {
             page_id
-        } else{
-            let mut cache=self.cache.write()
-            .map_err(map_err(Error::CantGetNode(page_id)))?;
+        } else {
+            let mut cache = self
+                .cache
+                .write()
+                .map_err(map_err(Error::CantReadNode(page_id)))?;
             self.move_cache(page_id, &mut cache)?;
             0
         };
 
-        let page={
-            let cache=self.cache.read()
-            .map_err(map_err(Error::CantGetNode(page_id)))?;
-            let delete_this_after_debugged = &cache[relative_id..relative_id+PAGE_SIZE];
-            delete_this_after_debugged.to_vec()
+        let page = {
+            let cache = self
+                .cache
+                .read()
+                .map_err(map_err(Error::CantReadNode(page_id)))?;
+            (&cache[relative_id..relative_id + PAGE_SIZE]).to_vec()
         };
         let is_leaf = match page[NODE_TYPE_OFFSET] {
             0x01 => Ok(true),
             0x00 => Ok(false),
-            _ => Err(Error::CantGetNode(page_id)),
+            _ => Err(Error::CantReadNode(page_id)),
         }?;
 
         let parent = usize::from_be_bytes(
             (&page[NODE_PARENT_OFFSET..NODE_PARENT_OFFSET + NODE_PARENT_SIZE])
                 .try_into()
-                .map_err(map_err(Error::CantGetNode(page_id)))?,
+                .map_err(map_err(Error::CantReadNode(page_id)))?,
         );
 
         let key_count = usize::from_be_bytes(
             (&page[NODE_KEY_COUNT_OFFSET..NODE_KEY_COUNT_OFFSET + NODE_KEY_COUNT_SIZE])
                 .try_into()
-                .map_err(map_err(Error::CantGetNode(page_id)))?,
+                .map_err(map_err(Error::CantReadNode(page_id)))?,
         );
 
         let mut keys_vec = vec!["".to_string(); key_count];
@@ -253,14 +269,14 @@ impl FileCache {
 
         for i in 0..key_count {
             let key = String::from_utf8(page[key_offset..MAX_KEY_SIZE + key_offset].to_vec())
-                .map_err(map_err(Error::CantGetNode(page_id)))?
+                .map_err(map_err(Error::CantReadNode(page_id)))?
                 .trim_end_matches('\0')
                 .to_string();
 
             let value = usize::from_be_bytes(
                 (&page[values_offset..values_offset + SIZE_OF_USIZE])
                     .try_into()
-                    .map_err(map_err(Error::CantGetNode(page_id)))?,
+                    .map_err(map_err(Error::CantReadNode(page_id)))?,
             );
 
             keys_vec[i] = key;
@@ -274,7 +290,7 @@ impl FileCache {
             let value = usize::from_be_bytes(
                 (&page[values_offset..values_offset + SIZE_OF_USIZE])
                     .try_into()
-                    .map_err(map_err(Error::CantGetNode(page_id)))?,
+                    .map_err(map_err(Error::CantReadNode(page_id)))?,
             );
             values_vec.push(value)
         }
@@ -287,20 +303,62 @@ impl FileCache {
             is_leaf,
         })
     }
-    pub fn new_node(&mut self)->InternalResult<Node>{
-        let page_id=if let Some(page_id)=self.empty_pages.pop() {
+    pub fn new_node(&mut self) -> InternalResult<Node> {
+        let page_id = if let Some(page_id) = self.empty_pages.pop() {
             page_id
-        }else{
-            self.end.get()+1
-            
+        } else {
+            self.end.get() + 1
         };
 
-        let new_node=Node{ parent_page_id: 0, page_id, keys: vec![], values: vec![], is_leaf: true };
+        let new_node = Node {
+            parent_page_id: 0,
+            page_id,
+            keys: vec![],
+            values: vec![],
+            is_leaf: true,
+        };
 
         self.write_node(&new_node)?;
 
         Ok(new_node)
+    }
+    pub fn get_node_max_key(&self, page_id: usize) -> InternalResult<String> {
+        let relative_id = if let Some(page_id) = self.relative_id(page_id) {
+            page_id
+        } else {
+            let mut cache = self
+                .cache
+                .write()
+                .map_err(map_err(Error::CantReadNode(page_id)))?;
+            self.move_cache(page_id, &mut cache)?;
+            0
+        };
+        let cache = self
+            .cache
+            .read()
+            .map_err(map_err(Error::CantReadNode(page_id)))?;
 
+        let key_count = usize::from_be_bytes(
+            (&cache[NODE_KEY_COUNT_OFFSET..NODE_KEY_COUNT_OFFSET + NODE_KEY_COUNT_SIZE])
+                .try_into()
+                .map_err(map_err(Error::CantReadNode(page_id)))?,
+        );
+
+        let key_start = HEADER_SIZE + key_count * MAX_KEY_SIZE;
+
+        Ok(
+            String::from_utf8(cache[key_start..MAX_KEY_SIZE + key_start].to_vec())
+                .map_err(map_err(Error::CantReadNode(page_id)))?
+                .trim_end_matches('\0')
+                .to_string(),
+        )
+    }
+    pub fn new_page(&mut self) -> usize {
+        if let Some(page_id) = self.empty_pages.pop() {
+            page_id
+        } else {
+            self.end.get() + 1
+        }
     }
 }
 
@@ -342,15 +400,14 @@ mod tests {
     #[test]
     fn test_move_cache() {
         let cache = get_file_cache(5);
-        let mut data_lock=cache.cache.write().unwrap();
+        let mut data_lock = cache.cache.write().unwrap();
         assert_eq!(cache.current_file_page_count.get(), 5);
 
-        cache.move_cache(10,&mut data_lock).unwrap();
+        cache.move_cache(10, &mut data_lock).unwrap();
         assert_eq!(cache.current_file_page_count.get(), 15);
 
-        cache.move_cache(0,&mut data_lock).unwrap();
+        cache.move_cache(0, &mut data_lock).unwrap();
         assert_eq!(cache.current_file_page_count.get(), 15);
-
 
         //add more test cases like from 5 to 45 and make sure all the pages existed
     }
@@ -362,59 +419,56 @@ mod tests {
         let cache = get_file_cache(page_size);
         let mut data = cache.cache.write().unwrap();
 
-        
         data[0..8].copy_from_slice(&value.to_be_bytes());
         cache.write_cache_to_file(&mut data).unwrap();
 
         let cache = get_file_cache_no_create(page_size);
         let read_value =
             usize::from_be_bytes((&cache.cache.read().unwrap()[0..8]).try_into().unwrap());
-        
-        assert_eq!(value, read_value);
 
-        
-        
+        assert_eq!(value, read_value);
     }
     #[test]
     fn write_on_move() {
         let page_size = 5;
         let value = 8usize;
 
-        let cache=get_file_cache(page_size);
-        
+        let cache = get_file_cache(page_size);
+
         let mut data = cache.cache.write().unwrap();
-        
-        let read_start=cache.end.get()*PAGE_SIZE;
 
-        data[read_start..read_start+8].copy_from_slice(&value.to_be_bytes());
-        cache.move_cache(page_size*2,&mut data).unwrap();
-        
+        let read_start = cache.end.get() * PAGE_SIZE;
 
-        
+        data[read_start..read_start + 8].copy_from_slice(&value.to_be_bytes());
+        cache.move_cache(page_size * 2, &mut data).unwrap();
+
         let cache = get_file_cache_no_create(page_size);
-        let read_value =
-            usize::from_be_bytes((&cache.cache.read().unwrap()[read_start..read_start+8]).try_into().unwrap());
-        
+        let read_value = usize::from_be_bytes(
+            (&cache.cache.read().unwrap()[read_start..read_start + 8])
+                .try_into()
+                .unwrap(),
+        );
 
         assert_eq!(value, read_value);
     }
     #[test]
-    fn test_node_new_node(){
-        let page_size=5;
-        let mut cache=get_file_cache(page_size);
-        let new_node=cache.new_node();
-        assert_eq!(new_node,Ok(Node{ 
-            parent_page_id: 0, 
-            page_id: page_size-1, 
-            keys: vec![], 
-            values: vec![], 
-            is_leaf: true
-        }));
-        let new_node=new_node.unwrap();
-        let node_from_file=cache.read_node(new_node.page_id).unwrap();
+    fn test_node_new_node() {
+        let page_size = 5;
+        let mut cache = get_file_cache(page_size);
+        let new_node = cache.new_node();
+        assert_eq!(
+            new_node,
+            Ok(Node {
+                parent_page_id: 0,
+                page_id: page_size - 1,
+                keys: vec![],
+                values: vec![],
+                is_leaf: true
+            })
+        );
+        let new_node = new_node.unwrap();
+        let node_from_file = cache.read_node(new_node.page_id).unwrap();
 
-        assert_eq!(new_node,node_from_file)
+        assert_eq!(new_node, node_from_file)
     }
-
-    
 }

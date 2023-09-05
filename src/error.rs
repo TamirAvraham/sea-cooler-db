@@ -9,7 +9,7 @@ pub enum Error {
     CantWritePage,
     CantWriteValue,
     CantReadValue,
-    CantGetNode(usize),
+    CantReadNode(usize),
     CantWriteNode(usize),
     CantWriteCacheToDisk((usize,usize)),
     CantGetValue,

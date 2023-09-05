@@ -131,7 +131,7 @@ impl Node {
     pub fn split(&mut self, pager: &mut Pager, t: usize) -> InternalResult<Node> {
         let new_node_keys = self.keys.split_off(t);
         let new_node_values = self.values.split_off(t);
-        let new_node_page_id = pager.new_page()?;
+        let new_node_page_id = pager.new_page();
 
         let mut new_node = Node {
             parent_page_id: self.parent_page_id,
@@ -164,7 +164,7 @@ impl Node {
             }
             parent
         } else {
-            let parent_page_id = pager.new_page()?;
+            let parent_page_id = pager.new_page();
             let parent = Node {
                 parent_page_id: 0,
                 page_id: parent_page_id,
@@ -222,7 +222,7 @@ mod tests {
     #[test]
     fn test_merge_nodes(){
         let mut pager = create_pager();
-        let node_page_id = pager.new_page().expect("Cannot create node page");
+        let node_page_id = pager.new_page();
         let t=2;
         let mut node=Node {
             parent_page_id: 0,
@@ -247,9 +247,9 @@ mod tests {
     #[test]
     fn test_borrow_leaves() {
         let mut pager = create_pager();
-        let parent_page_id = pager.new_page().expect("Cannot create parent page");
-        let node_page_id = pager.new_page().expect("Cannot create node page");
-        let sibling_page_id = pager.new_page().expect("Cannot create sibling page");
+        let parent_page_id = pager.new_page();
+        let node_page_id = pager.new_page();
+        let sibling_page_id = pager.new_page();
 
         let parent = Node {
             parent_page_id: 0,
@@ -311,9 +311,9 @@ mod tests {
     #[test]
     fn test_borrow_inter() {
         let mut pager = create_pager();
-        let parent_page_id = pager.new_page().expect("Cannot create parent page");
-        let node_page_id = pager.new_page().expect("Cannot create node page");
-        let sibling_page_id = pager.new_page().expect("Cannot create sibling page");
+        let parent_page_id = pager.new_page();
+        let node_page_id = pager.new_page();
+        let sibling_page_id = pager.new_page();
 
         let parent = Node {
             parent_page_id: 0,
@@ -381,7 +381,7 @@ mod tests {
         let mut pager = create_pager();
         let mut node = Node {
             parent_page_id: 0,
-            page_id: pager.new_page().expect("cant create page for error"),
+            page_id: pager.new_page(),
             keys: vec![],
             values: vec![],
             is_leaf: true,
@@ -398,7 +398,7 @@ mod tests {
     fn test_split_with_no_parent() {
         let mut pager = create_pager();
         let t = 2;
-        let node_page_id = pager.new_page().expect("cant create page for new node");
+        let node_page_id = pager.new_page();
 
         let mut node = Node {
             parent_page_id: 0,
@@ -432,7 +432,7 @@ mod tests {
     fn test_split_with_parent() {
         let mut pager = create_pager();
         let t = 2;
-        let node_page_id = pager.new_page().expect("cant create page for new node");
+        let node_page_id = pager.new_page();
 
         let mut node = Node {
             parent_page_id: 0,

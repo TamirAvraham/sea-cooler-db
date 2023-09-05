@@ -10,7 +10,7 @@ pub const DEFAULT_T:usize=(MAX_KEYS_IN_NODE-1)/2;
 pub const FILE_ENDING: &str = ".mbpt"; // my b plus tree
 pub const VALUE_FILE_ENDING: &str = ".value";
 pub const NODES_FILE_ENDING: &str = ".nodes";
-
+pub const DEFULT_CACHE_SIZE:usize=100;
 pub struct BTreeBulider {
     path: String,
     t: usize,
@@ -54,21 +54,14 @@ impl BTreeBulider {
                 Error::FileError
             })?;
 
-        let mut pager = Pager::new(nodes_file, values_file);
-        let root_page_id = pager.new_page()?;
-        let root = Node {
-            is_leaf: true,
-            keys: vec![],
-            values: vec![],
-            parent_page_id: 0,
-            page_id:root_page_id
-        };
+        let mut pager = Pager::new(nodes_file, values_file,DEFULT_CACHE_SIZE);
+        let root = pager.new_node()?;
         pager.write_node(&root)?;
 
         Ok(BPlusTree {
             pager,
             t: self.t,
-            root_page_id,
+            root_page_id: root.page_id,
         })
     }
 
@@ -133,7 +126,7 @@ impl BPlusTree {
             true => {
                 if let Some(value_location) = node.get(key) {
                     let value=pager.read_value(*value_location)?;
-                    let value=String::from_utf8(value).map_err(map_err(Error::CantGetNode(node_page_id)))?;
+                    let value=String::from_utf8(value).map_err(map_err(Error::CantReadNode(node_page_id)))?;
                     return Ok(Some(value));
                 } else{
                     return Ok(None);
@@ -311,7 +304,7 @@ mod tests{
 
     fn test_rebalance() {
         let (nodes_file,values_file)=create_test_files().unwrap();
-        let mut pager = Pager::new(nodes_file,values_file);
+        let mut pager = Pager::new(nodes_file,values_file,DEFULT_CACHE_SIZE);
         let t = 2;
     
         // Create nodes to test rebalancing
