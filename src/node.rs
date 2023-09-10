@@ -4,7 +4,7 @@ use crate::{
 };
 
 pub const MAX_KEY_SIZE: usize = 50;
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord,Clone)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct Node {
     pub parent_page_id: usize,
     pub page_id: usize,
@@ -19,15 +19,16 @@ impl Node {
 
         let location_in_parent = parent
             .values
-            .binary_search(&self.page_id)
-            .map_err(map_err(Error::MergeError(self.page_id)))?;
+            .iter()
+            .position(|&x| self.page_id == x)
+            .ok_or(Error::MergeError(self.page_id))?;
 
         if location_in_parent == parent.values.len() - 1 {
             let mut sibling = pager.read_node(parent.values[location_in_parent - 1])?;
-            
+
             sibling.values.extend(self.values.iter());
             sibling.keys.extend(self.keys.clone());
-            
+
             parent.keys.pop().unwrap();
             parent.values.pop();
 
@@ -44,11 +45,8 @@ impl Node {
             pager.delete_node(sibling.page_id)?;
             pager.write_node(&self)?;
         }
-        
+
         pager.write_node(&parent)?;
-
-        
-
 
         Ok(())
     }
@@ -57,11 +55,12 @@ impl Node {
     }
     pub fn borrow(&mut self, pager: &mut Pager) -> InternalResult<()> {
         let mut parent = self.get_parent(pager)?;
-
         let location_in_parent = parent
             .values
-            .binary_search(&self.page_id)
-            .map_err(map_err(Error::BorrowError(self.page_id)))?;
+            .iter()
+            .position(|&x| self.page_id == x)
+            .ok_or(Error::BorrowError(self.page_id))?;
+
         //is self the biggest node in parent
         if location_in_parent == parent.values.len() - 1 {
             let mut sibling = pager.read_node(parent.values[location_in_parent - 1])?;
@@ -220,11 +219,11 @@ mod tests {
 
     use super::*;
     #[test]
-    fn test_merge_nodes(){
+    fn test_merge_nodes() {
         let mut pager = create_pager();
         let node_page_id = pager.new_page();
-        let t=2;
-        let mut node=Node {
+        let t = 2;
+        let mut node = Node {
             parent_page_id: 0,
             page_id: node_page_id,
             keys: vec![],
@@ -232,17 +231,17 @@ mod tests {
             is_leaf: true,
         };
 
-        for i in 1..=4{
+        for i in 1..=4 {
             node.insert(i.to_string(), i);
         }
-        let pre_node=node.clone();
+        let pre_node = node.clone();
 
-        let sibling_node=node.split(&mut pager, t).expect("cnat split node");
-        let parent=node.get_parent(&pager).expect("cant get parent");
+        let sibling_node = node.split(&mut pager, t).expect("cnat split node");
+        let parent = node.get_parent(&pager).expect("cant get parent");
 
         node.merge_nodes(&mut pager).expect("cant merge nodes");
-        assert_eq!(node.values,pre_node.values);
-        assert_eq!(node.keys,pre_node.keys);
+        assert_eq!(node.values, pre_node.values);
+        assert_eq!(node.keys, pre_node.keys);
     }
     #[test]
     fn test_borrow_leaves() {
@@ -490,6 +489,5 @@ mod tests {
             .expect("cant split parent");
         assert_eq!(new_parent.keys, vec_to_string_vec(vec![5]));
         new_parent.print_tree(&pager).expect("cnat print tree");
-        let i = 0;
     }
 }

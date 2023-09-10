@@ -33,7 +33,7 @@ impl FileCache {
             cache[id..id + PAGE_SIZE].to_vec()
         } else {
             let mut cache = self.cache.write().unwrap();
-            self.move_cache(page_id, &mut cache).unwrap();
+            self.move_cache(page_id*PAGE_SIZE, &mut cache).unwrap();
             cache[0..PAGE_SIZE].to_vec()
         };
     }
@@ -185,9 +185,9 @@ impl FileCache {
             .map_err(map_err(Error::CantWriteNode(node.page_id)))?;
 
         let relative_id = if let Some(page_id) = self.relative_id(node.page_id) {
-            page_id
+            page_id*PAGE_SIZE
         } else {
-            self.move_cache(node.page_id, &mut cache)?;
+            self.move_cache(node.page_id*PAGE_SIZE, &mut cache)?;
             0
         };
 
@@ -211,9 +211,9 @@ impl FileCache {
             .write()
             .map_err(map_err(Error::CantDeletePage(page_id)))?;
         let relative_id = if let Some(page_id) = self.relative_id(page_id) {
-            page_id
+            page_id*PAGE_SIZE
         } else {
-            self.move_cache(page_id, &mut cache)?;
+            self.move_cache(page_id*PAGE_SIZE, &mut cache)?;
             0
         };
 
@@ -226,15 +226,15 @@ impl FileCache {
     }
     pub fn read_node(&self, page_id: usize) -> InternalResult<Node> {
         let relative_id = if let Some(page_id) = self.relative_id(page_id) {
-            page_id
+            page_id * PAGE_SIZE
         } else {
             let mut cache = self
                 .cache
                 .write()
                 .map_err(map_err(Error::CantReadNode(page_id)))?;
-            self.move_cache(page_id, &mut cache)?;
+            self.move_cache(page_id*PAGE_SIZE, &mut cache)?;
             0
-        };
+        } ;
 
         let page = {
             let cache = self
@@ -330,7 +330,7 @@ impl FileCache {
                 .cache
                 .write()
                 .map_err(map_err(Error::CantReadNode(page_id)))?;
-            self.move_cache(page_id, &mut cache)?;
+            self.move_cache(page_id*PAGE_SIZE, &mut cache)?;
             0
         };
         let cache = self
