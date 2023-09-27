@@ -38,7 +38,6 @@ static RC: [u8;11] = [0x00, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1B
 
 
 
-
 fn clone_into_array<A, T>(slice: &[T]) -> A
 where
     A: Default + AsMut<[T]>,
@@ -77,15 +76,13 @@ fn key_schedule_AES128(key_bytes: &[u8;16]) -> [[u8;4];44] {
     return expanded_key;
 }
 
-fn substitute(byte: u8, encryption: bool) -> u8 {
-    let upper_nibble : usize;
-    let lower_nibble : usize;
-    upper_nibble = ((byte>>4) & 0xF).into();
-    lower_nibble = (byte & 0xF).into();
-    if encryption == true {
-        return AES_SBOX[upper_nibble][lower_nibble];
-    } else {
-        return INVERSE_AES_SBOX[upper_nibble][lower_nibble];
+fn substitute(byte: &u8, encryption: bool) -> u8 {
+    let upper_nibble : usize = ((byte>>4) & 0xF).into();
+    let lower_nibble : usize= (byte & 0xF).into();
+
+    return match encryption == true {
+        true =>  AES_SBOX[upper_nibble][lower_nibble],
+        false =>  INVERSE_AES_SBOX[upper_nibble][lower_nibble],
     }
 }
 
@@ -103,7 +100,7 @@ fn sub_word(word: &[u8; 4]) -> [u8;4] {
     let mut result = [0u8;4];
 
     for i in 0..4 {
-        result[i] = substitute(word[i], true);
+        result[i] = substitute(&word[i], true);
     }
 
     return result;
@@ -130,7 +127,7 @@ fn add_round_key(state:&mut [[u8;4];4], key: &[[u8;4];4]) {
 fn sub_bytes(state:&mut [[u8;4];4]) {
     for i in 0..4 {
         for j in 0..4 {
-            state[i][j] = substitute(state[i][j], true);
+            state[i][j] = substitute(&state[i][j], true);
         }
     }
 }
@@ -138,7 +135,7 @@ fn sub_bytes(state:&mut [[u8;4];4]) {
 fn inv_sub_bytes(state:&mut [[u8;4];4]) {
     for i in 0..4 {
         for j in 0..4 {
-            state[i][j] = substitute(state[i][j], false);
+            state[i][j] = substitute(&state[i][j], false);
         }
     }
 }
@@ -191,7 +188,6 @@ fn galois_multiplication(ap: u8, bp: u8) -> u8 {
     }
     return p & 0xFF;
 }
-
 fn mix_columns(state: &mut [[u8;4];4]) {
     for i in 0..4 {
 
@@ -223,7 +219,7 @@ fn inv_mix_columns(state: &mut [[u8;4];4]) {
     }
 }
 
-fn encrypt_AES128(key_bytes: &[u8;16], bytes: &[u8]) -> Vec<u8> {
+pub fn encrypt_AES128(key_bytes: &[u8;16], bytes: &[u8]) -> Vec<u8> {
     if bytes.len()%16!=0 {
         panic!("Input is not multiple of 16 bytes!");
     }
@@ -274,7 +270,7 @@ fn encrypt_block_AES128(expanded_key: &[[u8; 4]; 44], bytes: &[u8;16]) -> [u8;16
     return result;
 }
 
-fn decrypt_AES128(key_bytes: &[u8;16], bytes: &[u8]) -> Vec<u8> {
+pub fn decrypt_AES128(key_bytes: &[u8;16], bytes: &[u8]) -> Vec<u8> {
     if bytes.len()%16!=0 {
         panic!("Input is not multiple of 16 bytes!");
     }

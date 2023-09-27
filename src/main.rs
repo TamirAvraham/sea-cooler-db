@@ -3,9 +3,8 @@ mod pager;
 mod node;
 mod btree;
 mod page_cache;
-mod encrypt_trails;
-mod aes;
 mod aes128;
+mod encryption;
 fn main() {
     println!("Hello, world!");
 }
