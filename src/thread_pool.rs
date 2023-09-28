@@ -3,7 +3,7 @@ use std::{
         mpsc::{self, Receiver, Sender},
         Arc, Mutex,
     },
-    thread::{self, JoinHandle},
+    thread::{self, JoinHandle}, future::Future,
 };
 
 type Job = Box<dyn FnOnce() + 'static + Send>;
@@ -67,6 +67,26 @@ impl ThreadPool {
     {
         self.sender.send(Message::Do(Box::new(f))).unwrap();
     }
+
+    pub fn compute<F, R, Args>(&self, f: F, args: Args) -> R
+    where
+        F: FnOnce(Args) -> R + Send + 'static,
+        R: 'static + Send,
+        Args: Send + 'static,
+    {
+        let (result_sender, result_receiver) = mpsc::channel();
+
+        let job = Message::Do(Box::new(move || {
+            let result = f(args);
+            result_sender.send(result).expect("Result sender failed");
+        }));
+
+        self.sender
+            .send(job)
+            .expect("Thread pool sender failed to send job");
+
+        result_receiver.recv().unwrap()
+    }
 }
 
 impl Drop for ThreadPool {
@@ -88,10 +108,17 @@ mod tests {
     use super::*;
     #[test]
     fn it_works() {
-        let p = ThreadPoo::new(4);
+        let p = ThreadPool::new(4);
         p.execute(|| println!("do new job1"));
         p.execute(|| println!("do new job2"));
         p.execute(|| println!("do new job3"));
         p.execute(|| println!("do new job4"));
+    }
+    #[test]
+    fn compute_test() {
+        let thread_pool = ThreadPool::new(4);
+        let num = 4;
+        let result1 = thread_pool.compute(|num| num * 30303, num);
+        assert!(result1 == num * 30303)
     }
 }
