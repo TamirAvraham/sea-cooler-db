@@ -42,7 +42,7 @@ pub fn decrypt(key:&String,encrypted:Vec<u8>)->String{
 
 #[cfg(test)]
 mod tests{
-    use super::pad_key;
+    use super::{pad_key, encrypt, decrypt};
 
     #[test]
     fn test_pad_key() {
@@ -62,5 +62,19 @@ mod tests{
 
 
         assert_eq!(&padded_key,key2.as_bytes())
+    }
+    #[test]
+    fn test_encrypt(){
+        let text="aes is a pain in the ass to write".to_string();
+
+        let key="i hope cha cha 20 will be easier".to_string();
+
+
+        let encrypted_text=encrypt(&key, text.clone());
+
+
+        let decrypted_text=decrypt(&key, encrypted_text);
+
+        assert_eq!(text,decrypted_text)
     }
 }
