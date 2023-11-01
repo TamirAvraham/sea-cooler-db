@@ -43,3 +43,23 @@ impl<T,F> Deref for Lazy<T,F> where F: FnOnce()->T{
     }
 }
 */
+
+pub fn get_cpu_cores() -> usize {
+    if let Ok(cores) = std::env::var("NUMBER_OF_PROCESSORS") {
+        if let Ok(cores) = cores.parse::<usize>() {
+            return cores;
+        }
+    }
+    0
+}
+
+
+#[cfg(test)]
+mod tests{
+    use crate::helpers::get_cpu_cores;
+
+    #[test]
+    fn test_cpu_cores() {
+       println!("cpu cores {}",get_cpu_cores());
+    }
+}

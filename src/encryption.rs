@@ -44,10 +44,6 @@ pub fn decrypt(key:&String,encrypted:Vec<u8>)->String{
 
 
 
-struct EncryptionService {
-    
-}
-
 #[cfg(test)]
 mod tests{
     use super::{pad_key, encrypt, decrypt};
@@ -85,4 +81,6 @@ mod tests{
 
         assert_eq!(text,decrypted_text)
     }
+
+    
 }

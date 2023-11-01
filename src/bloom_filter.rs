@@ -11,13 +11,13 @@ const  K:f64=(M/ N) * LN_2;
 
 pub struct BloomFilter {
 
-    bit_array: Vec<bool>,
+    bit_array: [bool; M as usize],
 }
 
 impl BloomFilter {
     fn new() -> BloomFilter {
         BloomFilter {
-            bit_array: vec![false; M as usize],
+            bit_array: [false; M as usize],
         }
     }
 

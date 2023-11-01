@@ -1,10 +1,12 @@
 use std::{
     sync::{
         mpsc::{self, Receiver, Sender},
-        Arc, Mutex,
+        Arc, Mutex, Once, RwLock,
     },
     thread::{self, JoinHandle}, future::Future,
 };
+
+use crate::helpers::get_cpu_cores;
 
 type Job = Box<dyn FnOnce() + 'static + Send>;
 enum Message {
@@ -77,8 +79,7 @@ impl ThreadPool {
         let (result_sender, result_receiver) = mpsc::channel();
 
         let job = Message::Do(Box::new(move || {
-            let result = f(args);
-            result_sender.send(result).expect("Result sender failed");
+            result_sender.send(f(args)).expect("Result sender failed");
         }));
 
         self.sender
@@ -103,6 +104,26 @@ impl Drop for ThreadPool {
     }
 }
 
+
+pub static mut SINGLETON:Option<RwLock<ThreadPool>>=None;
+static INIT:Once=Once::new();
+
+
+impl ThreadPool {
+    pub fn get_instance()-> &'static mut RwLock<Self>{
+        INIT.call_once(||
+            unsafe {
+                SINGLETON=Some(RwLock::new(Self::new(get_cpu_cores())));
+            }
+        );
+
+        unsafe {
+            SINGLETON.as_mut().unwrap()
+        }
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -120,5 +141,12 @@ mod tests {
         let num = 4;
         let result1 = thread_pool.compute(|num| num * 30303, num);
         assert!(result1 == num * 30303)
+    }
+
+
+    #[test]
+    fn test_singleton() {
+        let t=ThreadPool::get_instance().read().unwrap();
+        t.execute(|| println!("hello world"))
     }
 }
