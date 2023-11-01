@@ -6,6 +6,8 @@ mod page_cache;
 mod aes128;
 mod encryption;
 mod thread_pool;
+mod bloom_filter;
+mod helpers;
 fn main() {
     println!("Hello, world!");
 }
