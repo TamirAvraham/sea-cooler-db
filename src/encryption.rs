@@ -1,4 +1,6 @@
-use crate::aes128;
+use std::sync::{RwLockReadGuard, Once, RwLock};
+
+use crate::{aes128, thread_pool::ThreadPool};
 
 
 
@@ -41,9 +43,36 @@ pub fn encrypt(key:&String,text:String)->Vec<u8>{
 pub fn decrypt(key:&String,encrypted:Vec<u8>)->String{
     String::from_utf8(aes128::decrypt_AES128(&pad_key(key), &encrypted)).unwrap().trim_end().to_string()
 }
+static mut SINGLETON:Option<RwLock<EncryptionService>>=None;
+static INIT:Once=Once::new();
 
+pub struct EncryptionService {
+    threadpool_connection:RwLockReadGuard<'static,ThreadPool>,
+}
+impl EncryptionService {
+    fn new() -> EncryptionService {
+        EncryptionService{ threadpool_connection: ThreadPool::get_instance().read().unwrap()  }
+    }
 
+    pub fn encrypt(&self,text:String,key:String)->Vec<u8>{
+        self.threadpool_connection.compute(|(key,text)| encrypt(&key,text), (key,text))
+    }
+    pub fn decrypt(&self,text:Vec<u8>,key:String)->String{
+        self.threadpool_connection.compute(|(key,text)| decrypt(&key,text), (key,text))
+    }
 
+    pub fn get_instance()-> &'static mut RwLock<Self>{
+        INIT.call_once(||
+            unsafe {
+                SINGLETON=Some(RwLock::new(Self::new()));
+            }
+        );
+
+        unsafe {
+            SINGLETON.as_mut().unwrap()
+        }
+    }
+}
 #[cfg(test)]
 mod tests{
     use super::{pad_key, encrypt, decrypt};

@@ -45,7 +45,7 @@ pub struct ThreadPool {
 }
 
 impl ThreadPool {
-    pub fn new(max_workers: usize) -> Self {
+    fn new(max_workers: usize) -> Self {
         let (sender, receiver) = mpsc::channel();
 
         let mut workers = Vec::with_capacity(max_workers);
