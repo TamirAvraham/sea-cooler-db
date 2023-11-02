@@ -8,6 +8,7 @@ mod encryption;
 mod thread_pool;
 mod bloom_filter;
 mod helpers;
+mod json;
 fn main() {
     println!("Hello, world!");
 }
