@@ -42,8 +42,6 @@ impl JsonType {
             return Ok(JsonType::Float);
         }
 
-        
-
         //collections
         match data.chars().nth(0) {
             Some(c) => match c {
@@ -75,10 +73,30 @@ impl JsonDeserializer {
         }
         Err(JsonError::ParseError)
     }
-    fn find_scope_end(c: char, data: &str) -> usize {
-        todo!()
+    fn find_matching_closing_bracket(json_string: &str, start_index: usize) -> Result<usize,JsonError> {
+        let mut bracket_count = 1;
+        let open_bracket = json_string[start_index..].chars().next().ok_or(JsonError::ParseError)?;
+        let close_bracket = match open_bracket {
+            '{' => '}',
+            '[' => ']',
+            _ => return Err(JsonError::ParseError),
+        };
+        
+        for (i, c) in json_string[start_index + 1..].char_indices() {
+            if c == open_bracket {
+                bracket_count += 1;
+            } else if c == close_bracket {
+                bracket_count -= 1;
+            }
+            
+            if bracket_count == 0 {
+                return Ok(start_index + i + 1);
+            }
+        }
+    
+        Err(JsonError::ParseError)
     }
-    fn get_last_value(data: &str)->Result<usize,JsonError>{
+    fn get_last_value(data: &str) -> Result<usize, JsonError> {
         if data.find('{').is_none() {
             if let Some(end) = data.find('}') {
                 return Ok(end);
@@ -91,19 +109,18 @@ impl JsonDeserializer {
         if let Some(start) = data.find(":") {
             if let Some(first_char) = data[start + 1..].chars().next() {
                 let end = if first_char == '[' || first_char == '{' {
-                    Self::find_scope_end(first_char, &data[start + 1..])
-                 } //else if first_char == '\"'{
+                    Self::find_matching_closing_bracket( &data[start + 1..],0)?+1
+                }
+                //else if first_char == '\"'{
                 //     data[start + 2..].find('\"').ok_or(JsonError::ParseError)?+1
-                // } 
+                // }
                 else {
-                    
-                    if let Some(end) = data[start+1..].find(",") {
+                    if let Some(end) = data[start + 1..].find(",") {
                         end
                     } else {
-                        Self::get_last_value(&data[start+1..])?
+                        Self::get_last_value(&data[start + 1..])?
                     }
                 };
-                println!("first char is {}", first_char);
                 return Ok((start + 1, end));
             }
         }
@@ -155,15 +172,11 @@ impl JsonDeserializer {
         data = Self::clean_json(&data);
 
         while data != "" {
-            println!("started parsing new line. data is {}.", data);
             let (key, value, pair_end) = Self::get_line(&data)?;
-            println!(
-                "got new key value pair. key={},value={},pair_end={}",
-                key, value, pair_end
-            );
+            println!("{}:{}",key,value);
             ret.insert(key, JsonData::from_string(value)?);
 
-            data = data[pair_end+1..].to_string();
+            data = data[pair_end + 1..].to_string();
         }
         Ok(ret)
     }
@@ -369,7 +382,7 @@ impl From<JsonData> for String {
 mod tests {
     use super::*;
     #[test]
-    fn test_json_decode() {
+    fn test_easy_json_decode() {
         let json_data = r#"
         {
             "name": "John",
@@ -379,7 +392,31 @@ mod tests {
         "#
         .to_string();
         let json = JsonDeserializer::deserialize(json_data);
-        print!("{:?}",json);
+        print!("{:?}", json);
+        assert_ne!(json, Err(JsonError::ParseError))
+    }
+    #[test]
+    fn test_hard_json_decode() {
+        let json_data = r#"
+        {
+            "string_key": "This is a string",
+            "number_key": 42.5,
+            "boolean_key": true,
+            "null_key": null,
+            "array_key": [1, 2, 3, "four", null, {"nested_key": "nested_value"}],
+            "object_key": {
+                "inner_string_key": "Hello, world!",
+                "inner_number_key": 123,
+                "inner_boolean_key": false,
+                "inner_null_key": null,
+                "inner_array_key": [true, false, "inner_string", {"deep_key": "deep_value"}]
+            }
+        }
+        "#
+        .to_string();
+
+        let json = JsonDeserializer::deserialize(json_data);
+        println!("{:?}", json);
         assert_ne!(json, Err(JsonError::ParseError))
     }
 }
