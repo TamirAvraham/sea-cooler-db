@@ -18,10 +18,16 @@ pub struct JsonData {
 }
 impl JsonType {
     pub fn get_type(data: &String) -> Result<JsonType, JsonError> {
+        //null
         if data == "null" || data == "undefined" {
             return Ok(JsonType::Null);
         }
+        //bool
+        if data=="true" || data== "false" {
+            return Ok(JsonType::Boolean);
+        }
 
+        //numbers
         if data.parse::<f64>().is_ok() {
             return Ok(JsonType::Float);
         }
@@ -29,6 +35,8 @@ impl JsonType {
         if data.parse::<i128>().is_ok() {
             return Ok(JsonType::Integer);
         }
+
+        //collections
         match data.chars().nth(0) {
             Some(c) => match c {
                 '[' => Ok(JsonType::Array),
@@ -52,3 +60,5 @@ impl JsonData {
         Ok(Self{ data, data_type })
     }
 }
+
+//todo: do all tryfrom
