@@ -55,10 +55,10 @@ impl EncryptionService {
     }
 
     pub fn encrypt(&self,text:String,key:String)->Vec<u8>{
-        self.threadpool_connection.compute(|(key,text)| encrypt(&key,text), (key,text))
+        self.threadpool_connection.compute(|(key,text)| encrypt(&key,text), (key,text)).get()
     }
     pub fn decrypt(&self,text:Vec<u8>,key:String)->String{
-        self.threadpool_connection.compute(|(key,text)| decrypt(&key,text), (key,text))
+        self.threadpool_connection.compute(|(key,text)| decrypt(&key,text), (key,text)).get()
     }
 
     pub fn get_instance()-> &'static mut RwLock<Self>{

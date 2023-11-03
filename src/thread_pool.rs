@@ -3,7 +3,7 @@ use std::{
         mpsc::{self, Receiver, Sender},
         Arc, Mutex, Once, RwLock,
     },
-    thread::{self, JoinHandle}, future::Future,
+    thread::{self, JoinHandle},
 };
 
 use crate::helpers::get_cpu_cores;
@@ -37,7 +37,17 @@ impl Worker {
         }
     }
 }
-
+pub struct ComputedValue<T>{
+    receiver:Receiver<T>
+}
+impl<T> ComputedValue<T> {
+  pub fn new(receiver:Receiver<T>)->Self{
+    Self { receiver }
+  }  
+  pub fn get(self)->T{
+    self.receiver.recv().unwrap()
+  }
+}
 pub struct ThreadPool {
     workers: Vec<Worker>,
     max_workers: usize,
@@ -70,7 +80,7 @@ impl ThreadPool {
         self.sender.send(Message::Do(Box::new(f))).unwrap();
     }
 
-    pub fn compute<F, R, Args>(&self, f: F, args: Args) -> R
+    pub fn compute<F, R, Args>(&self, f: F, args: Args) -> ComputedValue<R>
     where
         F: FnOnce(Args) -> R + Send + 'static,
         R: 'static + Send,
@@ -86,7 +96,7 @@ impl ThreadPool {
             .send(job)
             .expect("Thread pool sender failed to send job");
 
-        result_receiver.recv().unwrap()
+        ComputedValue::new(result_receiver)
     }
 }
 
@@ -140,7 +150,7 @@ mod tests {
         let thread_pool = ThreadPool::new(4);
         let num = 4;
         let result1 = thread_pool.compute(|num| num * 30303, num);
-        assert!(result1 == num * 30303)
+        assert!(result1.get() == num * 30303)
     }
 
 
