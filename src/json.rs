@@ -1,5 +1,8 @@
-use std::{collections::HashMap, ops::{IndexMut, Index}};
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash,Clone, Copy)]
+use std::{
+    collections::HashMap,
+    ops::{Index, IndexMut},
+};
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
 pub enum JsonType {
     String,
     Integer,
@@ -13,30 +16,30 @@ pub enum JsonType {
 pub enum JsonError {
     ParseError,
 }
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash,Clone)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
 pub struct JsonData {
     data: String,
     data_type: JsonType,
 }
 
 pub struct JsonDeserializer {}
+pub struct JsonSerializer {}
 
-pub type JsonObjectTypeAlias = HashMap<String, JsonData>;
-pub type JsonArray=Vec<JsonData>;
-#[derive(Debug, PartialEq, Eq,Clone)]
-pub struct JsonObject{
-    map:HashMap<String,JsonData>
+pub type JsonArray = Vec<JsonData>;
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct JsonObject {
+    map: HashMap<String, JsonData>,
 }
 
 impl JsonObject {
-    pub fn new()->Self{
-        Self { map: HashMap::new() }
+    pub fn new() -> Self {
+        Self {
+            map: HashMap::new(),
+        }
     }
-    pub fn insert(&mut self,k:String,v:JsonData)->Option<JsonData>{
+    pub fn insert(&mut self, k: String, v: JsonData) -> Option<JsonData> {
         self.map.insert(k, v)
     }
-    
-    
 }
 impl JsonType {
     pub fn get_type(data: &String) -> Result<JsonType, JsonError> {
@@ -77,41 +80,56 @@ impl JsonData {
         let data_type = JsonType::get_type(&data)?;
         Ok(Self { data, data_type })
     }
-    pub fn as_float(&self)->Result<f32,JsonError>{
+    pub fn as_float(&self) -> Result<f32, JsonError> {
         self.try_into()
     }
-    pub fn as_object(&self)->Result<JsonObject,JsonError>{
+    pub fn as_object(&self) -> Result<JsonObject, JsonError> {
         self.try_into()
     }
-    pub fn as_array(&self)->Result<JsonArray,JsonError>{
+    pub fn as_array(&self) -> Result<JsonArray, JsonError> {
         self.try_into()
     }
-    pub fn as_string(&self)->String{
+    pub fn as_string(&self) -> String {
         self.into()
     }
-    pub fn as_int(&self)->Result<i32,JsonError>{
+    pub fn as_int(&self) -> Result<i32, JsonError> {
         self.try_into()
     }
-    pub fn as_bool(&self)->Result<bool,JsonError>{
+    pub fn as_bool(&self) -> Result<bool, JsonError> {
         self.try_into()
     }
-    pub fn is_null(&self)->bool{
-        self.data_type==JsonType::Null
+    pub fn is_null(&self) -> bool {
+        self.data_type == JsonType::Null
     }
-    pub fn from_string(v:String)->JsonData{
-        JsonData { data: format!("\"{}\"",v), data_type: JsonType::String }
+    pub fn from_string(v: String) -> JsonData {
+        JsonData {
+            data: format!("\"{}\"", v),
+            data_type: JsonType::String,
+        }
     }
-    pub fn from_float(v:f32)->JsonData{
-        JsonData { data: v.to_string(), data_type: JsonType::Float }
+    pub fn from_float(v: f32) -> JsonData {
+        JsonData {
+            data: v.to_string(),
+            data_type: JsonType::Float,
+        }
     }
-    pub fn from_int(v:i32)->JsonData{
-        JsonData { data: v.to_string(), data_type: JsonType::Integer }
+    pub fn from_int(v: i32) -> JsonData {
+        JsonData {
+            data: v.to_string(),
+            data_type: JsonType::Integer,
+        }
     }
-    pub fn from_boolean(v:bool)->JsonData{
-        JsonData { data: v.to_string(), data_type: JsonType::Boolean }
+    pub fn from_boolean(v: bool) -> JsonData {
+        JsonData {
+            data: v.to_string(),
+            data_type: JsonType::Boolean,
+        }
     }
-    pub fn new_null()->JsonData{
-        JsonData { data:"null".to_string(), data_type: JsonType::Null }
+    pub fn new_null() -> JsonData {
+        JsonData {
+            data: "null".to_string(),
+            data_type: JsonType::Null,
+        }
     }
 }
 
@@ -124,59 +142,64 @@ impl JsonDeserializer {
         }
         Err(JsonError::ParseError)
     }
-    fn find_matching_closing_bracket(json_string: &str, start_index: usize) -> Result<usize,JsonError> {
+    fn find_matching_closing_bracket(
+        json_string: &str,
+        start_index: usize,
+    ) -> Result<usize, JsonError> {
         let mut bracket_count = 1;
-        let open_bracket = json_string[start_index..].chars().next().ok_or(JsonError::ParseError)?;
+        let open_bracket = json_string[start_index..]
+            .chars()
+            .next()
+            .ok_or(JsonError::ParseError)?;
         let close_bracket = match open_bracket {
             '{' => '}',
             '[' => ']',
             _ => return Err(JsonError::ParseError),
         };
-        
+
         for (i, c) in json_string[start_index + 1..].char_indices() {
             if c == open_bracket {
                 bracket_count += 1;
             } else if c == close_bracket {
                 bracket_count -= 1;
             }
-            
+
             if bracket_count == 0 {
                 return Ok(start_index + i + 1);
             }
         }
-    
+
         Err(JsonError::ParseError)
     }
-    fn get_last_value(data: &str,arr:bool) -> Result<usize, JsonError> {
-        if data.find(if arr {'['} else {'{'}).is_none() {
-            if let Some(end) = data.find(if arr {']'} else {'}'}) {
+    fn get_last_value(data: &str, arr: bool) -> Result<usize, JsonError> {
+        if data.find(if arr { '[' } else { '{' }).is_none() {
+            if let Some(end) = data.find(if arr { ']' } else { '}' }) {
                 return Ok(end);
             }
         }
 
         Err(JsonError::ParseError)
     }
-    fn get_arr_member(data: &String)-> Result<(usize, usize), JsonError>{
-            if let Some(first_char) = data[1..].chars().next() {
-                let end = if first_char == '[' || first_char == '{' {
-                    Self::find_matching_closing_bracket( &data[1..],0)?+1
+    fn get_arr_member(data: &String) -> Result<(usize, usize), JsonError> {
+        if let Some(first_char) = data[1..].chars().next() {
+            let end = if first_char == '[' || first_char == '{' {
+                Self::find_matching_closing_bracket(&data[1..], 0)? + 1
+            } else {
+                if let Some(end) = data[1..].find(",") {
+                    end
+                } else {
+                    Self::get_last_value(&data[1..], true)?
                 }
-                else {
-                    if let Some(end) = data[1..].find(",") {
-                        end
-                    } else {
-                        Self::get_last_value(&data[1..],true)?
-                    }
-                };
-                return Ok((1, end));
-            }
+            };
+            return Ok((1, end));
+        }
         Err(JsonError::ParseError)
     }
-    fn get_value_position(data: &String,arr:bool) -> Result<(usize, usize), JsonError> {
+    fn get_value_position(data: &String, arr: bool) -> Result<(usize, usize), JsonError> {
         if let Some(start) = data.find(':') {
             if let Some(first_char) = data[start + 1..].chars().next() {
                 let end = if first_char == '[' || first_char == '{' {
-                    Self::find_matching_closing_bracket( &data[start + 1..],0)?+1
+                    Self::find_matching_closing_bracket(&data[start + 1..], 0)? + 1
                 }
                 //else if first_char == '\"'{
                 //     data[start + 2..].find('\"').ok_or(JsonError::ParseError)?+1
@@ -185,7 +208,7 @@ impl JsonDeserializer {
                     if let Some(end) = data[start + 1..].find(",\"") {
                         end
                     } else {
-                        Self::get_last_value(&data[start + 1..],arr)?
+                        Self::get_last_value(&data[start + 1..], arr)?
                     }
                 };
                 return Ok((start + 1, end));
@@ -195,7 +218,7 @@ impl JsonDeserializer {
     }
     fn get_line(data: &String) -> Result<(String, String, usize), JsonError> {
         let (key_start, key_end) = Self::get_key_position(data)?;
-        let (value_start, value_end) = Self::get_value_position(data,false)?;
+        let (value_start, value_end) = Self::get_value_position(data, false)?;
 
         Ok((
             data[key_start..key_start + key_end].to_string(),
@@ -232,12 +255,12 @@ impl JsonDeserializer {
         result
     }
     pub fn deserialize_array(data: &String) -> Result<JsonArray, JsonError> {
-        let mut data=data.clone();
+        let mut data = data.clone();
         let mut ret = vec![];
 
         while data != "]" {
-            let (value_start,value_end)=Self::get_arr_member(&data)?;
-            
+            let (value_start, value_end) = Self::get_arr_member(&data)?;
+
             let value = data[value_start..value_start + value_end].to_string();
             ret.push(JsonData::infer_from_string(value)?);
 
@@ -259,12 +282,50 @@ impl JsonDeserializer {
     }
 }
 
+impl JsonSerializer {
+    pub fn serialize(json: JsonObject) -> String {
+        Self::serialize_with_spacer(json, 0, true)
+    }
+    pub fn serialize_with_spacer(json: JsonObject, spacer: u8, new_lines: bool) -> String {
+        let mut ret = "{".to_string();
+        if new_lines {
+            ret.push('\n')
+        }
+        for (key, value) in json.into_iter() {
+            if new_lines {
+                for _ in 0..=spacer {
+                    ret.push('\t')
+                }
+            }
+            ret.push_str(&format!(
+                "\"{}\": {},{}",
+                key,
+                value.to_json_string(spacer + 1, new_lines),
+                if new_lines { "\n" } else { "" }
+            ));
+        }
+        ret.pop();
+        ret.pop();
+        if new_lines {
+            ret.push('\n');
+        }
+
+        if new_lines {
+            for _ in 1..spacer {
+                ret.push('\t')
+            }
+        }
+        ret.push('}');
+        ret
+    }
+}
+
 //basic collection impels for JsonObject
 
 impl IntoIterator for JsonObject {
-    type Item=(String,JsonData);
+    type Item = (String, JsonData);
 
-    type IntoIter=std::collections::hash_map::IntoIter<String, JsonData>;
+    type IntoIter = std::collections::hash_map::IntoIter<String, JsonData>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.map.into_iter()
@@ -293,19 +354,46 @@ impl Index<&str> for JsonObject {
 
 impl IndexMut<&str> for JsonObject {
     fn index_mut(&mut self, key: &str) -> &mut Self::Output {
-        self.map.entry(key.to_string()).or_insert(JsonData::new_null())
+        self.map
+            .entry(key.to_string())
+            .or_insert(JsonData::new_null())
     }
 }
 
-impl TryFrom<String> for JsonObject{
-
-    type Error=JsonError;
+impl TryFrom<String> for JsonObject {
+    type Error = JsonError;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
         JsonDeserializer::deserialize(value)
     }
 }
-    //all into 
+
+impl JsonData {
+    fn to_json_string(&self, spacer: u8, new_lines: bool) -> String {
+        match self.data_type {
+            JsonType::String => self.data.clone(),
+            JsonType::Integer => self.data.clone(),
+            JsonType::Boolean => self.data.clone(),
+            JsonType::Float => self.data.clone(),
+            JsonType::Array => {
+                let mut ret = "[".to_string();
+                for element in self.as_array().unwrap().into_iter() {
+                    ret.push_str(&format!("{},", element.to_json_string(spacer, false)));
+                }
+                ret.pop();
+                ret.push(']');
+                ret
+            }
+            JsonType::Object => JsonSerializer::serialize_with_spacer(
+                JsonObject::try_from(self.data.clone()).unwrap(),
+                spacer + 1,
+                new_lines,
+            ),
+            JsonType::Null => self.data.clone(),
+        }
+    }
+}
+//all into
 
 impl Into<JsonData> for i32 {
     fn into(self) -> JsonData {
@@ -328,9 +416,6 @@ impl Into<JsonData> for bool {
         JsonData::from_boolean(self)
     }
 }
-
-
-
 
 //all try from
 
@@ -719,7 +804,6 @@ impl From<&JsonData> for String {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -733,9 +817,12 @@ mod tests {
         }
         "#
         .to_string();
+
         let json = JsonDeserializer::deserialize(json_data);
-        print!("{:?}", json);
-        assert_ne!(json, Err(JsonError::ParseError))
+        println!("{:?}", json);
+        assert_ne!(json, Err(JsonError::ParseError));
+
+        println!("json is: \n{}", JsonSerializer::serialize(json.unwrap()));
     }
     #[test]
     fn test_hard_json_decode() {
@@ -760,20 +847,22 @@ mod tests {
         let json = JsonDeserializer::deserialize(json_data);
 
         assert_ne!(json, Err(JsonError::ParseError));
-        let json=json.unwrap();
-        let vector:JsonArray=(&json["array_key"]).try_into().unwrap();
-        let float:f32=(&json["number_key"]).try_into().unwrap();
-        let object=json["object_key"].as_object().unwrap();
-        let int=object["inner_number_key"].as_int().unwrap();
-        let boolean=json["boolean_key"].as_bool().unwrap();
-        let string=json["string_key"].as_string();
-        let null=json["null_key"].is_null();
-        
+        let json = json.unwrap();
+        let _vector: JsonArray = (&json["array_key"]).try_into().unwrap();
+        let float: f32 = (&json["number_key"]).try_into().unwrap();
+        let object = json["object_key"].as_object().unwrap();
+        let int = object["inner_number_key"].as_int().unwrap();
+        let boolean = json["boolean_key"].as_bool().unwrap();
+        let string = json["string_key"].as_string();
+        let null = json["null_key"].is_null();
+
         assert_eq!(float, 42.5);
         assert_eq!(int, 123);
         assert_eq!(boolean, true);
         assert_eq!(string, "This is a string");
         assert!(null);
+
+        println!("json is \n{}", JsonSerializer::serialize(json))
     }
 }
 
