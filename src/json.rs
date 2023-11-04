@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, ops::{IndexMut, Index}};
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash,Clone, Copy)]
 pub enum JsonType {
     String,
@@ -21,10 +21,23 @@ pub struct JsonData {
 
 pub struct JsonDeserializer {}
 
-pub type JsonObject = HashMap<String, JsonData>;
+pub type JsonObjectTypeAlias = HashMap<String, JsonData>;
 pub type JsonArray=Vec<JsonData>;
+#[derive(Debug, PartialEq, Eq,Clone)]
+pub struct JsonObject{
+    map:HashMap<String,JsonData>
+}
 
-
+impl JsonObject {
+    pub fn new()->Self{
+        Self { map: HashMap::new() }
+    }
+    pub fn insert(&mut self,k:String,v:JsonData)->Option<JsonData>{
+        self.map.insert(k, v)
+    }
+    
+    
+}
 impl JsonType {
     pub fn get_type(data: &String) -> Result<JsonType, JsonError> {
         //null
@@ -60,7 +73,7 @@ impl JsonData {
     pub fn new(data: String, data_type: JsonType) -> JsonData {
         JsonData { data, data_type }
     }
-    pub fn from_string(data: String) -> Result<Self, JsonError> {
+    pub fn infer_from_string(data: String) -> Result<Self, JsonError> {
         let data_type = JsonType::get_type(&data)?;
         Ok(Self { data, data_type })
     }
@@ -84,6 +97,21 @@ impl JsonData {
     }
     pub fn is_null(&self)->bool{
         self.data_type==JsonType::Null
+    }
+    pub fn from_string(v:String)->JsonData{
+        JsonData { data: format!("\"{}\"",v), data_type: JsonType::String }
+    }
+    pub fn from_float(v:f32)->JsonData{
+        JsonData { data: v.to_string(), data_type: JsonType::Float }
+    }
+    pub fn from_int(v:i32)->JsonData{
+        JsonData { data: v.to_string(), data_type: JsonType::Integer }
+    }
+    pub fn from_boolean(v:bool)->JsonData{
+        JsonData { data: v.to_string(), data_type: JsonType::Boolean }
+    }
+    pub fn new_null()->JsonData{
+        JsonData { data:"null".to_string(), data_type: JsonType::Null }
     }
 }
 
@@ -211,25 +239,98 @@ impl JsonDeserializer {
             let (value_start,value_end)=Self::get_arr_member(&data)?;
             
             let value = data[value_start..value_start + value_end].to_string();
-            ret.push(JsonData::from_string(value)?);
+            ret.push(JsonData::infer_from_string(value)?);
 
             data = data[value_end + 1..].to_string();
         }
         Ok(ret)
     }
     pub fn deserialize(mut data: String) -> Result<JsonObject, JsonError> {
-        let mut ret = HashMap::new();
+        let mut ret = JsonObject::new();
         data = Self::clean_json(&data);
 
         while data != "" {
             let (key, value, pair_end) = Self::get_line(&data)?;
-            ret.insert(key, JsonData::from_string(value)?);
+            ret.insert(key, JsonData::infer_from_string(value)?);
 
             data = data[pair_end + 1..].to_string();
         }
         Ok(ret)
     }
 }
+
+//basic collection impels for JsonObject
+
+impl IntoIterator for JsonObject {
+    type Item=(String,JsonData);
+
+    type IntoIter=std::collections::hash_map::IntoIter<String, JsonData>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.map.into_iter()
+    }
+}
+impl Index<String> for JsonObject {
+    type Output = JsonData;
+
+    fn index(&self, key: String) -> &Self::Output {
+        self.map.get(&key).expect("Key not found")
+    }
+}
+
+impl IndexMut<String> for JsonObject {
+    fn index_mut(&mut self, key: String) -> &mut Self::Output {
+        self.map.entry(key).or_insert(JsonData::new_null())
+    }
+}
+impl Index<&str> for JsonObject {
+    type Output = JsonData;
+
+    fn index(&self, key: &str) -> &Self::Output {
+        self.map.get(key).expect("Key not found")
+    }
+}
+
+impl IndexMut<&str> for JsonObject {
+    fn index_mut(&mut self, key: &str) -> &mut Self::Output {
+        self.map.entry(key.to_string()).or_insert(JsonData::new_null())
+    }
+}
+
+impl TryFrom<String> for JsonObject{
+
+    type Error=JsonError;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        JsonDeserializer::deserialize(value)
+    }
+}
+    //all into 
+
+impl Into<JsonData> for i32 {
+    fn into(self) -> JsonData {
+        JsonData::from_int(self)
+    }
+}
+
+impl Into<JsonData> for f32 {
+    fn into(self) -> JsonData {
+        JsonData::from_float(self)
+    }
+}
+impl Into<JsonData> for String {
+    fn into(self) -> JsonData {
+        JsonData::from_string(self)
+    }
+}
+impl Into<JsonData> for bool {
+    fn into(self) -> JsonData {
+        JsonData::from_boolean(self)
+    }
+}
+
+
+
 
 //all try from
 
