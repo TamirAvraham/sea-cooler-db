@@ -222,7 +222,6 @@ impl JsonDeserializer {
         data = Self::clean_json(&data);
 
         while data != "" {
-            println!("data is {}",data);
             let (key, value, pair_end) = Self::get_line(&data)?;
             ret.insert(key, JsonData::from_string(value)?);
 
@@ -618,6 +617,8 @@ impl From<&JsonData> for String {
         item.data.replace("\"", "")
     }
 }
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -658,12 +659,10 @@ mod tests {
         let json = JsonDeserializer::deserialize(json_data);
 
         assert_ne!(json, Err(JsonError::ParseError));
-        print!("\n\n\n\n\n\n\n\n\n");
         let json=json.unwrap();
         let vector:JsonArray=(&json["array_key"]).try_into().unwrap();
         let float:f32=(&json["number_key"]).try_into().unwrap();
         let object=json["object_key"].as_object().unwrap();
-        println!("{:?}",object.keys());
         let int=object["inner_number_key"].as_int().unwrap();
         let boolean=json["boolean_key"].as_bool().unwrap();
         let string=json["string_key"].as_string();
