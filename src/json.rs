@@ -31,6 +31,9 @@ pub struct JsonObject {
     map: HashMap<String, JsonData>,
 }
 
+
+
+
 impl JsonObject {
     pub fn new() -> Self {
         Self {
@@ -305,7 +308,10 @@ impl JsonSerializer {
             ));
         }
         ret.pop();
-        ret.pop();
+        let c=ret.pop().unwrap();
+        if !new_lines {
+            ret.push(c)
+        }
         if new_lines {
             ret.push('\n');
         }
