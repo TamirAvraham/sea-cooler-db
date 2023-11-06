@@ -32,8 +32,6 @@ pub struct JsonObject {
 }
 
 
-
-
 impl JsonObject {
     pub fn new() -> Self {
         Self {
@@ -42,6 +40,9 @@ impl JsonObject {
     }
     pub fn insert(&mut self, k: String, v: JsonData) -> Option<JsonData> {
         self.map.insert(k, v)
+    }
+    pub fn get(&self,key:&String)->Option<&JsonData>{
+        self.map.get(key)
     }
 }
 impl JsonType {
@@ -133,6 +134,9 @@ impl JsonData {
             data: "null".to_string(),
             data_type: JsonType::Null,
         }
+    }
+    pub fn get_type(&self)->JsonType{
+        self.data_type
     }
 }
 
