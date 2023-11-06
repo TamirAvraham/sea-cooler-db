@@ -6,12 +6,13 @@ pub enum JsonValidationError {
     IsNull,
     ValueDoesNotMeetConstraint(JsonData, JsonData, Ordering),
     MissingProperty,
-    IncorrectType(String,JsonType,JsonType)
+    IncorrectType(String, JsonType, JsonType),
 }
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum JsonConstraint {
     Nullable,
     ValueConstraint(JsonData, Ordering),
+    Any,
 }
 
 pub struct JsonValidationProperty {
@@ -33,6 +34,7 @@ impl JsonValidationProperty {
     pub fn constraint(mut self, constraint: JsonConstraint) -> Self {
         match &constraint {
             JsonConstraint::Nullable => {}
+            JsonConstraint::Any => {}
             JsonConstraint::ValueConstraint(data, order) => {
                 assert_eq!(self.data_type, data.get_type());
                 match self.data_type {
@@ -93,11 +95,15 @@ impl ValidationJson {
             if let Some(value) = json.get(&prop.name) {
                 if (value.get_type() == prop.data_type)
                     || (prop.constraints.contains(&JsonConstraint::Nullable) && value.is_null())
+                    || prop.constraints.contains(&JsonConstraint::Any)
                 {
                     for constraint in prop.constraints.iter() {
                         match constraint {
                             JsonConstraint::Nullable => {
-                                // al ready cheaked it in the if above
+                                // all ready checked it in the if above
+                            }
+                            JsonConstraint::Any => {
+                                // all ready checked it in the if above
                             }
                             JsonConstraint::ValueConstraint(constraint_value, order) => {
                                 if !Self::comp_values(value, constraint_value, order) {
@@ -111,7 +117,11 @@ impl ValidationJson {
                         }
                     }
                 } else {
-                    return Err(JsonValidationError::IncorrectType(prop.name.to_owned(), value.get_type(),prop.data_type));
+                    return Err(JsonValidationError::IncorrectType(
+                        prop.name.to_owned(),
+                        value.get_type(),
+                        prop.data_type,
+                    ));
                 }
             } else {
                 return Err(JsonValidationError::MissingProperty);
@@ -137,42 +147,48 @@ mod tests {
                 JsonType::String,
             ))
             .add(
-                JsonValidationProperty::new("age".to_string(), JsonType::Integer)
-                    .constraint(JsonConstraint::ValueConstraint(JsonData::from_int(15), Ordering::Greater)),
+                JsonValidationProperty::new("age".to_string(), JsonType::Integer).constraint(
+                    JsonConstraint::ValueConstraint(JsonData::from_int(15), Ordering::Greater),
+                ),
             );
 
-
-        let mut json1=JsonObject::new();
+        let mut json1 = JsonObject::new();
         json1.insert("gender".to_string(), JsonData::new_null());
-        json1.insert("name".to_string(), JsonData::from_string("adolf".to_string()));
+        json1.insert(
+            "name".to_string(),
+            JsonData::from_string("adolf".to_string()),
+        );
         json1.insert("age".to_string(), JsonData::from_int(17));
 
         assert!(template.validate(&json1).is_ok());
 
-
-        
-        let mut json2=JsonObject::new();
+        let mut json2 = JsonObject::new();
         json2.insert("gender".to_string(), JsonData::new_null());
-        json2.insert("name".to_string(), JsonData::from_string("adolf".to_string()));
+        json2.insert(
+            "name".to_string(),
+            JsonData::from_string("adolf".to_string()),
+        );
         json2.insert("age".to_string(), JsonData::from_int(11));
-        
+
         assert!(template.validate(&json2).is_err());
 
-        let mut json3=JsonObject::new();
+        let mut json3 = JsonObject::new();
         json3.insert("gender".to_string(), JsonData::from_boolean(false));
-        json3.insert("name".to_string(), JsonData::from_string("adolf".to_string()));
+        json3.insert(
+            "name".to_string(),
+            JsonData::from_string("adolf".to_string()),
+        );
         json3.insert("age".to_string(), JsonData::from_int(17));
-        
-        template.validate(&json3).expect("had an error");
-        
 
-        let mut json4=JsonObject::new();
+        template.validate(&json3).expect("had an error");
+
+        let mut json4 = JsonObject::new();
         json4.insert("gender".to_string(), JsonData::from_boolean(false));
         json4.insert("age".to_string(), JsonData::from_int(17));
-        
-        assert_eq!(template.validate(&json4).unwrap_err(),JsonValidationError::MissingProperty);
-        
 
-
+        assert_eq!(
+            template.validate(&json4).unwrap_err(),
+            JsonValidationError::MissingProperty
+        );
     }
 }
