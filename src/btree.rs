@@ -10,7 +10,7 @@ pub const DEFAULT_T:usize=(MAX_KEYS_IN_NODE-1)/2;
 pub const FILE_ENDING: &str = ".mbpt"; // my b plus tree
 pub const VALUE_FILE_ENDING: &str = ".value";
 pub const NODES_FILE_ENDING: &str = ".nodes";
-pub const DEFULT_CACHE_SIZE:usize=100;
+pub const DEFAULT_CACHE_SIZE:usize=100;
 pub struct BTreeBulider {
     path: String,
     t: usize,
@@ -54,7 +54,7 @@ impl BTreeBulider {
                 Error::FileError
             })?;
 
-        let mut pager = Pager::new(nodes_file, values_file,DEFULT_CACHE_SIZE);
+        let mut pager = Pager::new(nodes_file, values_file,DEFAULT_CACHE_SIZE);
         let root = pager.new_node()?;
         pager.write_node(&root)?;
 
@@ -78,6 +78,7 @@ pub struct BPlusTree {
 impl BPlusTree {
     #[cfg(test)]
     pub fn print(&self){
+        println!("root is: {}",self.root_page_id);
         let node=self.pager.read_node(self.root_page_id).unwrap();
         node.print_tree(&self.pager).unwrap()
     }
@@ -217,7 +218,7 @@ mod tests{
     fn test_insert_and_search() {
         let path="temp".to_string();
         let mut tree=BTreeBulider::new().path(path.clone()).t(2).build().unwrap();
-        let range=10;
+        let range=500;
         (1..=range).for_each(|i| {
             println!("inserting i:{}",i);
             let key=format!("key_{}",i);
@@ -228,18 +229,17 @@ mod tests{
             tree.print();
             println!("_____________________________________________________________________________________________");
         });
-        tree.print();
         (1..=range).for_each(|i| {
             let key=format!("key_{}",i);
             let value=format!("value_{}",i);
             let err_msg=format!("error when serching for i:{}",i);
 
             let res=tree.search(key).expect(&err_msg);
-            assert_eq!(res,Some(value))
+            assert_eq!(res,Some(value),"{}", err_msg)
         });
         
         cleanup_temp_files();
-
+        println!("completed tree tests with t=2");
         let mut tree=BTreeBulider::new().path(path.clone()).t(5).build().unwrap();
         (1..=range).for_each(|i| {
             println!("inserting i:{}",i);
@@ -301,56 +301,32 @@ mod tests{
         tree.delete("key4".to_string()).unwrap();
         assert_eq!(tree.search("key4".to_string()).unwrap(), None);
     }
+    #[test]
+    fn test_default_t_tree_just_insert_and_search() {
+        let path="temp".to_string();
+        let mut tree=BTreeBulider::new().path(path.clone()).t(DEFAULT_T).build().unwrap();
+        let range=DEFAULT_T*100;
+        (1..=range).for_each(|i| {
+            println!("inserting i:{}",i);
+            let key=format!("key_{}",i);
+            let value=format!("value_{}",i);
+            let err_msg=format!("error when inserting i:{}",i);
 
-    fn test_rebalance() {
-        let (nodes_file,values_file)=create_test_files().unwrap();
-        let mut pager = Pager::new(nodes_file,values_file,DEFULT_CACHE_SIZE);
-        let t = 2;
-    
-        // Create nodes to test rebalancing
-        let mut node1 = Node {
-            is_leaf: true,
-            keys: vec!["key1".to_string(), "key3".to_string()],
-            values: vec![1, 2],
-            parent_page_id: 0,
-            page_id: 0,
-        };
-    
-        let mut node2 = Node {
-            is_leaf: true,
-            keys: vec!["key5".to_string(), "key7".to_string()],
-            values: vec![3, 4],
-            parent_page_id: 0,
-            page_id: 0,
-        };
-    
-        let mut parent = Node {
-            is_leaf: false,
-            keys: vec!["key4".to_string()],
-            values: vec![0, 5],
-            parent_page_id: 0,
-            page_id: 0,
-        };
-    
-        // Ensure that node 1 and node 2 are updated
-        let updated_node1 = Node{
-            is_leaf: true,
-            keys: vec!["key1".to_string(), "key3".to_string()],
-            values: vec![1, 2],
-            parent_page_id: 0,
-            page_id: 0,
-        };
-        let updated_node2 = Node {
-            is_leaf: true,
-            keys: vec!["key5".to_string(), "key7".to_string()],
-            values: vec![3, 4],
-            parent_page_id: 0,
-            page_id: 0,
-        };
-        assert_eq!(updated_node1.keys, vec!["key3".to_string()]);
-        assert_eq!(updated_node1.values, vec![2]);
-        assert_eq!(updated_node2.keys, vec!["key5".to_string(), "key7".to_string()]);
-        assert_eq!(updated_node2.values, vec![3, 4]);
+            tree.insert(key, value).expect(&err_msg);
+            println!("_____________________________________________________________________________________________");
+        });
+        println!("completed inserting");
+        (1..=range).for_each(|i| {
+            let key=format!("key_{}",i);
+            let value=format!("value_{}",i);
+            let err_msg=format!("error when serching for i:{}",i);
+            println!("searching {}",key.clone());
+            let res=tree.search(key).expect(&err_msg);
+            assert_eq!(res,Some(value),"{}", err_msg);
+
+        });
+        
+        cleanup_temp_files();
+        println!("completed tree tests with t=34");
     }
-
 }

@@ -108,7 +108,7 @@ impl Node {
     pub fn insert(&mut self, key: String, value: usize) {
         let mut i = 0;
 
-        while i < self.keys.len() && self.keys[i] < key {
+        while i < self.keys.len() && self.keys[i] <= key {
             i += 1;
         }
 
@@ -148,19 +148,28 @@ impl Node {
 
         let parent = if self.parent_page_id != 0 {
             let mut parent = pager.read_node(self.parent_page_id)?;
-            parent.insert(promoted_key.clone(), new_node_page_id);
-            if *parent.keys.last().unwrap() == promoted_key {
-                let parent_biggest_key =
-                    pager.get_node_max_key(parent.values.last().unwrap().clone())?;
 
-                if parent_biggest_key < *new_node.keys.last().unwrap() {
-                    let last_parent_node_index = parent.values.len() - 1;
-                    parent
-                        .values
-                        .swap(last_parent_node_index - 1, last_parent_node_index);
-                    //this is the new node's index and the index of the biggset node of the parent
-                }
-            }
+            let current_index_in_parent =
+                parent.values.iter().position(|&x| x==self.page_id).expect(&format!(
+                    "cant find a key that needs to be in the tree. value was {} values were {:?}",
+                    self.page_id, parent.values
+                ));
+            parent.values[current_index_in_parent] = new_node_page_id;
+
+            parent.insert(promoted_key.clone(), self.page_id);
+
+            // if *parent.keys.last().unwrap() == promoted_key {
+            //     let parent_biggest_key =
+            //         pager.get_node_max_key(parent.values.last().unwrap().clone())?;
+
+            //     if parent_biggest_key < *new_node.keys.last().unwrap() {
+            //         let last_parent_node_index = parent.values.len() - 1;
+            //         parent
+            //             .values
+            //             .swap(last_parent_node_index - 1, last_parent_node_index);
+            //         //this is the new node's index and the index of the biggset node of the parent
+            //     }
+            // }
             parent
         } else {
             let parent_page_id = pager.new_page();
@@ -176,6 +185,12 @@ impl Node {
 
             parent
         };
+        
+        if !self.is_leaf {
+            for &page_id in new_node.values.iter() {
+                pager.update_node_parent(page_id, new_node_page_id)?;
+            }
+        }
 
         pager.write_node(&self)?;
         pager.write_node(&new_node)?;
@@ -490,4 +505,7 @@ mod tests {
         assert_eq!(new_parent.keys, vec_to_string_vec(vec![5]));
         new_parent.print_tree(&pager).expect("cnat print tree");
     }
+
+    #[test]
+    fn split_1_10_11_2() {}
 }

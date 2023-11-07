@@ -160,6 +160,9 @@ impl Pager {
     pub fn get_node_max_key(&self,page_id: usize) -> Result<String, Error> {
         self.nodes_cache.get_node_max_key(page_id)
     }
+    pub fn update_node_parent(&mut self,page_id: usize,new_parent_id:usize)->Result<(),Error>{
+        self.nodes_cache.update_node_parent(page_id, new_parent_id)
+    }
 }
 #[cfg(test)]
 pub fn delete_file(file_path: &'static str) -> Option<()> {

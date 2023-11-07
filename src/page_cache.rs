@@ -333,13 +333,15 @@ impl FileCache {
             self.move_cache(page_id*PAGE_SIZE, &mut cache)?;
             0
         };
+        let start=PAGE_SIZE*relative_id;
+
         let cache = self
             .cache
             .read()
             .map_err(map_err(Error::CantReadNode(page_id)))?;
 
         let key_count = usize::from_be_bytes(
-            (&cache[NODE_KEY_COUNT_OFFSET..NODE_KEY_COUNT_OFFSET + NODE_KEY_COUNT_SIZE])
+            (&cache[start+NODE_KEY_COUNT_OFFSET..start+ NODE_KEY_COUNT_OFFSET + NODE_KEY_COUNT_SIZE])
                 .try_into()
                 .map_err(map_err(Error::CantReadNode(page_id)))?,
         );
@@ -347,11 +349,34 @@ impl FileCache {
         let key_start = HEADER_SIZE + key_count * MAX_KEY_SIZE;
 
         Ok(
-            String::from_utf8(cache[key_start..MAX_KEY_SIZE + key_start].to_vec())
+            String::from_utf8(cache[start+key_start..start+MAX_KEY_SIZE + key_start].to_vec())
                 .map_err(map_err(Error::CantReadNode(page_id)))?
                 .trim_end_matches('\0')
                 .to_string(),
         )
+    }
+
+    pub fn update_node_parent(&mut self,page_id: usize,new_parent_id:usize)-> Result<(),Error>{
+        let relative_id = if let Some(page_id) = self.relative_id(page_id) {
+            page_id
+        } else {
+            let mut cache = self
+                .cache
+                .write()
+                .map_err(map_err(Error::CantReadNode(page_id)))?;
+            self.move_cache(page_id*PAGE_SIZE, &mut cache)?;
+            0
+        };
+        let start=PAGE_SIZE*relative_id;
+
+        let mut cache = self
+            .cache
+            .write()
+            .map_err(map_err(Error::CantReadNode(page_id)))?;
+
+        cache[start+NODE_PARENT_OFFSET..start+NODE_PARENT_OFFSET+NODE_PARENT_SIZE].clone_from_slice(&new_parent_id.to_be_bytes());
+
+        self.write_cache_to_file(&mut cache)
     }
     pub fn new_page(&mut self) -> usize {
         if let Some(page_id) = self.empty_pages.pop() {
