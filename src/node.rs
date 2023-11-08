@@ -3,7 +3,7 @@ use crate::{
     pager::Pager,
 };
 
-pub const MAX_KEY_SIZE: usize = 50;
+pub const MAX_KEY_SIZE: usize = 16;
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct Node {
     pub parent_page_id: usize,

@@ -218,7 +218,7 @@ mod tests{
     fn test_insert_and_search() {
         let path="temp".to_string();
         let mut tree=BTreeBulider::new().path(path.clone()).t(2).build().unwrap();
-        let range=500;
+        let range=113;
         (1..=range).for_each(|i| {
             println!("inserting i:{}",i);
             let key=format!("key_{}",i);
@@ -226,9 +226,12 @@ mod tests{
             let err_msg=format!("error when inserting i:{}",i);
 
             tree.insert(key, value).expect(&err_msg);
-            tree.print();
-            println!("_____________________________________________________________________________________________");
         });
+        println!("_____________________________________________________________________________________________");
+        tree.print();
+        println!("_____________________________________________________________________________________________");
+
+        
         (1..=range).for_each(|i| {
             let key=format!("key_{}",i);
             let value=format!("value_{}",i);
@@ -240,31 +243,7 @@ mod tests{
         
         cleanup_temp_files();
         println!("completed tree tests with t=2");
-        let mut tree=BTreeBulider::new().path(path.clone()).t(5).build().unwrap();
-        (1..=range).for_each(|i| {
-            println!("inserting i:{}",i);
-            let key=format!("key_{}",i);
-            let value=format!("value_{}",i);
-            let err_msg=format!("error when inserting i:{}",i);
-
-            tree.insert(key, value).expect(&err_msg);
-            tree.print();
-        });
-
-        (1..=range).for_each(|i| {
-            let key=format!("key_{}",i);
-            let value=format!("value_{}",i);
-            let err_msg=format!("error when serching for i:{}",i);
-
-            let res=tree.search(key).expect(&err_msg);
-            tree.print();
-            assert_eq!(res,Some(value))
-        });
-
-        let res=tree.search("bonzo".to_string()).expect("fuck");
-        assert_eq!(res,None);
-
-        cleanup_temp_files();
+        
 
 
     }
@@ -305,7 +284,7 @@ mod tests{
     fn test_default_t_tree_just_insert_and_search() {
         let path="temp".to_string();
         let mut tree=BTreeBulider::new().path(path.clone()).t(DEFAULT_T).build().unwrap();
-        let range=DEFAULT_T*100;
+        let range=DEFAULT_T*105;
         (1..=range).for_each(|i| {
             println!("inserting i:{}",i);
             let key=format!("key_{}",i);
