@@ -10,6 +10,7 @@ mod bloom_filter;
 mod helpers;
 mod json;
 mod validation_json;
+mod logger;
 fn main() {
     println!("Hello, world!");
 }
