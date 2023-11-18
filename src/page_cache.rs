@@ -17,7 +17,7 @@ const EMPTY_PAGE: [u8; PAGE_SIZE] = [0; PAGE_SIZE];
 #[derive(Debug)]
 pub struct FileCache {
     file: RwLock<File>,
-    page_size: usize,
+    cache_size: usize,
     cache: RwLock<Vec<u8>>,
     start: Cell<usize>,
     end: Cell<usize>,
@@ -71,7 +71,7 @@ impl FileCache {
 
         Self {
             file: RwLock::new(file),
-            page_size,
+            cache_size: page_size,
             cache: RwLock::new(cache),
             start: Cell::new(0),
             end: Cell::new(page_size - 1),
@@ -140,13 +140,13 @@ impl FileCache {
             .write()
             .map_err(map_err(Error::MovingCacheError(start)))?;
 
-        let new_cache = if self.current_file_page_count.get() < start + self.page_size {
-            let new_page_count = (start + self.page_size) - self.current_file_page_count.get();
+        let new_cache = if self.current_file_page_count.get() < start + self.cache_size {
+            let new_page_count = (start + self.cache_size) - self.current_file_page_count.get();
             let mut new_cache = vec![];
 
-            if new_page_count < self.page_size {
+            if new_page_count < self.cache_size {
                 let amount_of_pages_i_already_have =
-                    self.current_file_page_count.get() % self.page_size;
+                    self.current_file_page_count.get() % self.cache_size;
 
                 file.seek(SeekFrom::End(0))
                     .map_err(map_err(Error::MovingCacheError(start)))?;
@@ -158,13 +158,12 @@ impl FileCache {
             }
 
             new_cache.extend(vec![0; new_page_count * PAGE_SIZE]);
-            self.current_file_page_count.set(start + self.page_size);
-
+            self.current_file_page_count.set(start + self.cache_size);
             new_cache
         } else {
             file.seek(SeekFrom::Start(start as u64))
                 .map_err(map_err(Error::MovingCacheError(start)))?;
-            let mut new_cache = vec![0; self.page_size * PAGE_SIZE];
+            let mut new_cache = vec![0; self.cache_size * PAGE_SIZE];
             file.read_exact(&mut new_cache)
                 .map_err(map_err(Error::MovingCacheError(start)))?;
             new_cache
@@ -173,7 +172,7 @@ impl FileCache {
         *(*cache) = new_cache;
 
         self.start.set(start);
-        self.end.set(start + self.page_size);
+        self.end.set(start + self.cache_size);
 
         Ok(())
     }

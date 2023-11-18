@@ -1,4 +1,4 @@
-use std::{cell::Cell, sync::Once, ops::Deref};
+use std::{cell::Cell, sync::Once, ops::Deref, path::Path, fs, io};
 /* 
 pub struct Lazy<T, F = fn() -> T> {
     value: Option<T>,
@@ -53,6 +53,12 @@ pub fn get_cpu_cores() -> usize {
     0
 }
 
+pub fn copy_file(source_path: &str, destination_path: &str) -> io::Result<()> {
+    let content = fs::read(source_path)?;
+    fs::write(destination_path, content)?;
+
+    Ok(())
+}
 
 #[cfg(test)]
 mod tests{

@@ -8,7 +8,7 @@ pub const MAX_KEYS_IN_NODE:usize=(PAGE_SIZE-HEADER_SIZE-SIZE_OF_USIZE)/(MAX_KEY_
 pub const LEFT_OVER_BYTES:usize=(PAGE_SIZE-HEADER_SIZE-SIZE_OF_USIZE)%(MAX_KEY_SIZE+SIZE_OF_USIZE);
 pub const DEFAULT_T:usize=(MAX_KEYS_IN_NODE-1)/2;
 pub const FILE_ENDING: &str = ".mbpt"; // my b plus tree
-pub const VALUE_FILE_ENDING: &str = ".value";
+pub const VALUES_FILE_ENDING: &str = ".value";
 pub const NODES_FILE_ENDING: &str = ".nodes";
 pub const DEFAULT_CACHE_SIZE:usize=100;
 pub struct BTreeBulider {
@@ -48,7 +48,7 @@ impl BTreeBulider {
             })?;
 
         let values_file = pager_file_options
-            .open(self.path.clone() + VALUE_FILE_ENDING + FILE_ENDING)
+            .open(self.path.clone() + VALUES_FILE_ENDING + FILE_ENDING)
             .map_err(|e| {
                 println!("in values file{:?}", e);
                 Error::FileError
@@ -218,7 +218,7 @@ mod tests{
     fn test_insert_and_search() {
         let path="temp".to_string();
         let mut tree=BTreeBulider::new().path(path.clone()).t(2).build().unwrap();
-        let range=113;
+        let range=10;
         (1..=range).for_each(|i| {
             println!("inserting i:{}",i);
             let key=format!("key_{}",i);
@@ -241,7 +241,7 @@ mod tests{
             assert_eq!(res,Some(value),"{}", err_msg)
         });
         
-        cleanup_temp_files();
+        //cleanup_temp_files();
         println!("completed tree tests with t=2");
         
 

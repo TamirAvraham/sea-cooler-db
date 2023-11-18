@@ -1,22 +1,38 @@
 use std::{
-    fs::File,
+    cell::Cell,
+    fs::{self, File, OpenOptions},
     io::{self, stdout, Read, Seek, Write},
     mem::size_of,
-    sync::{RwLock, RwLockWriteGuard}, cell::Cell,
+    path::Path,
+    sync::{Mutex, RwLock, RwLockWriteGuard},
 };
 
-use crate::pager::SIZE_OF_USIZE;
+use crate::{
+    btree::{BPlusTree, FILE_ENDING, NODES_FILE_ENDING, VALUES_FILE_ENDING},
+    helpers::copy_file,
+    pager::SIZE_OF_USIZE,
+};
 const ID_SIZE: usize = SIZE_OF_USIZE;
 const ID_OFFSET: usize = ID_SIZE;
 const LOG_TYPE_SIZE: usize = size_of::<u8>();
 const LOG_TYPE_OFFSET: usize = LOG_TYPE_SIZE + ID_OFFSET;
 const COMPLETED_SIZE: usize = 1;
 const COMPLETED_OFFSET: usize = LOG_TYPE_OFFSET + COMPLETED_SIZE;
-const TRY_COUNTER_SIZE: usize = size_of::<u8>();
+const TRY_COUNTER_SIZE: usize = SIZE_OF_USIZE;
 const TRY_COUNTER_OFFSET: usize = COMPLETED_OFFSET + TRY_COUNTER_SIZE;
 const PARAM_LEN_SIZE: usize = SIZE_OF_USIZE;
-#[derive(Debug,PartialEq, Eq, PartialOrd, Ord)]
-enum OperationLoggerError {
+const FAIL_LOG_PATH: &str = "fail log.flog";
+
+const RESTORER_DIR: &str = "backup";
+const RESTORER_SETTINGS_FILE_ENDING: &str = "restorer.config";
+const RESTORER_RECOMMENDED_DIFF: usize = 30;
+const MAX_TRY_COUNTER: usize = 5;
+
+const LOGGER_CONFIG_FILENAME: &str = "logger.config";
+const OPERATION_LOGGER_FILE_ENDING: &str = ".oplogger";
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum LoggerError {
+    //OP logger
     InvalidOperationCode(u8),
     InvalidLogLocation(usize),
 
@@ -32,10 +48,91 @@ enum OperationLoggerError {
     CantWriteOpType,
     CantWriteParam,
 
-    CantMarkLogAsComplete
+    CantMarkLogAsComplete,
+    CantFindLog(usize),
+    CantAddOperationToFailLog,
+    CantIncrementTryCounter,
+    CantRestoreFilesFromBackup,
+    //Gen logger
+    CanWriteToOutput,
+
+    //Restorer
+    CantCreateBackupDir,
+    CantLoadLastId,
+    CantLoadBackupFiles,
+    CantUpdateLog,
+
+    //Logger
+    CantWriteToConfigFile,
+    CantReadFromConfigFile,
 }
-#[derive(Debug,PartialEq, Eq, PartialOrd, Ord)]
-enum OperationType {
+
+pub enum LogType {
+    Info,
+    Warning,
+    Error,
+}
+impl<T: Write> Default for GeneralLogger<T> {
+    fn default() -> Self {
+        Self {
+            output: None,
+            id: 1,
+        }
+    }
+}
+impl<T> GeneralLogger<T>
+where
+    T: Write,
+{
+    fn new(output: T, id: usize) -> GeneralLogger<T> {
+        GeneralLogger {
+            output: Some(output),
+            id,
+        }
+    }
+    pub fn log(&mut self, log_type: LogType, message: String) -> Result<(), LoggerError> {
+        let log = format!(
+            "{}| {}: {}.\n",
+            self.id,
+            match log_type {
+                LogType::Info => "Info",
+                LogType::Warning => "Warning",
+                LogType::Error => "Error",
+            },
+            message
+        );
+
+        if let Some(output) = &mut self.output {
+            output
+                .write_all(log.as_bytes())
+                .map_err(|_| LoggerError::CanWriteToOutput)?;
+        } else {
+            stdout()
+                .lock()
+                .write_all(log.as_bytes())
+                .map_err(|_| LoggerError::CanWriteToOutput)?;
+        }
+
+        self.id += 1;
+        Ok(())
+    }
+
+    pub fn get_id(&self) -> usize {
+        self.id
+    }
+    pub fn info(&mut self, message: String) -> Result<(), LoggerError> {
+        self.log(LogType::Info, message)
+    }
+    pub fn warning(&mut self, message: String) -> Result<(), LoggerError> {
+        self.log(LogType::Warning, message)
+    }
+    pub fn error(&mut self, message: String) -> Result<(), LoggerError> {
+        self.log(LogType::Error, message)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord,Clone)]
+pub enum OperationType {
     Insert(String, String),
     Select(String),
     Delete(String),
@@ -50,7 +147,7 @@ struct OperationLog {
 }
 struct OperationLogger {
     log_file: RwLock<File>,
-    id:Cell<usize>,
+    id: usize,
 }
 
 impl OperationType {
@@ -64,36 +161,66 @@ impl OperationType {
     }
 }
 
+impl ToString for OperationType {
+    fn to_string(&self) -> String {
+        match self {
+            OperationType::Insert(k, v) => format!("Insert {}:{}", k, v),
+            OperationType::Select(k) => format!("Select {}", k),
+            OperationType::Delete(k) => format!("Delete {}", k),
+            OperationType::Update(k, v) => format!("Update {}:{}", k, v),
+        }
+    }
+}
+
 //[ID - 8b][completed - 1b][try_counter - 8b][type - 1b][params - ?b]
 impl OperationLogger {
-    fn get_string_from_file(
-        file: &mut RwLockWriteGuard<'_, File>,
-    ) -> Result<String, OperationLoggerError> {
+    pub fn new(log_file: File, id: usize) -> Self {
+        Self {
+            log_file: RwLock::new(log_file),
+            id,
+        }
+    }
+    fn write_to_fail_log(&self, op_type: &OperationType) -> Result<(), LoggerError> {
+        let mut open_options = OpenOptions::new();
+        Self::write_string_to_file(
+            &mut RwLock::new(
+                open_options
+                    .write(true)
+                    .create(true)
+                    .open(FAIL_LOG_PATH)
+                    .map_err(|_| LoggerError::CantAddOperationToFailLog)?,
+            )
+            .write()
+            .unwrap(),
+            &op_type.to_string(),
+        )
+    }
+    fn get_string_from_file(file: &mut RwLockWriteGuard<'_, File>) -> Result<String, LoggerError> {
         let mut size_bytes = [0u8; SIZE_OF_USIZE];
         file.read_exact(&mut size_bytes)
-            .map_err(|_| OperationLoggerError::CantReadParam)?;
+            .map_err(|_| LoggerError::CantReadParam)?;
 
         let mut data = vec![0u8; usize::from_be_bytes(size_bytes)];
 
         file.read_exact(&mut data)
-            .map_err(|_| OperationLoggerError::CantReadParam)?;
+            .map_err(|_| LoggerError::CantReadParam)?;
 
-        String::from_utf8(data).map_err(|_| OperationLoggerError::CantReadParam)
+        String::from_utf8(data).map_err(|_| LoggerError::CantReadParam)
     }
     fn write_string_to_file(
         file: &mut RwLockWriteGuard<'_, File>,
         string: &String,
-    ) -> Result<(), OperationLoggerError> {
+    ) -> Result<(), LoggerError> {
         file.write_all(&string.len().to_be_bytes())
-            .map_err(|_| OperationLoggerError::CantWriteParam)?;
+            .map_err(|_| LoggerError::CantWriteParam)?;
         file.write_all(string.as_bytes())
-            .map_err(|_| OperationLoggerError::CantWriteParam)?;
+            .map_err(|_| LoggerError::CantWriteParam)?;
         Ok(())
     }
     fn get_op_type(
         file: &mut RwLockWriteGuard<'_, File>,
         op_type_byte: u8,
-    ) -> Result<OperationType, OperationLoggerError> {
+    ) -> Result<OperationType, LoggerError> {
         match op_type_byte {
             0x01 => Ok(OperationType::Insert(
                 Self::get_string_from_file(file)?,
@@ -105,38 +232,49 @@ impl OperationLogger {
                 Self::get_string_from_file(file)?,
                 Self::get_string_from_file(file)?,
             )),
-            _ => Err(OperationLoggerError::InvalidOperationCode(op_type_byte)),
+            _ => Err(LoggerError::InvalidOperationCode(op_type_byte)),
         }
     }
-
-    fn read_log_from_file(&self, offset: &usize) -> Result<OperationLog, OperationLoggerError> {
+    fn calc_op_log_size(log: &OperationType) -> usize {
+        ID_SIZE
+            + COMPLETED_SIZE
+            + TRY_COUNTER_SIZE
+            + LOG_TYPE_SIZE
+            + match log {
+                OperationType::Insert(k, v) => k.len() + v.len() + SIZE_OF_USIZE*2,
+                OperationType::Select(k) => k.len()+ SIZE_OF_USIZE,
+                OperationType::Delete(k) => k.len() + SIZE_OF_USIZE,
+                OperationType::Update(k, v) => k.len() + v.len() + SIZE_OF_USIZE*2,
+            }
+    }
+    fn read_log_from_file(&self, offset: &usize) -> Result<OperationLog, LoggerError> {
         let mut file = self.log_file.write().unwrap();
         file.seek(io::SeekFrom::Start(*offset as u64))
-            .map_err(|_| OperationLoggerError::InvalidLogLocation(*offset))?;
+            .map_err(|_| LoggerError::InvalidLogLocation(*offset))?;
 
         let mut usize_buff = [0u8; SIZE_OF_USIZE];
         file.read_exact(&mut usize_buff)
-            .map_err(|_| OperationLoggerError::CantReadId)?;
+            .map_err(|_| LoggerError::CantReadId)?;
 
         let id = usize::from_be_bytes(usize_buff);
 
         let mut byte_arr = [0u8];
         file.read_exact(&mut byte_arr)
-            .map_err(|_| OperationLoggerError::CantReadCompleted)?;
+            .map_err(|_| LoggerError::CantReadCompleted)?;
 
         let completed = match byte_arr[0] {
             0x1 => Ok(true),
             0x0 => Ok(false),
-            _ => Err(OperationLoggerError::CantReadCompleted),
+            _ => Err(LoggerError::CantReadCompleted),
         }?;
 
         file.read_exact(&mut usize_buff)
-            .map_err(|_| OperationLoggerError::CantReadTryCounter)?;
+            .map_err(|_| LoggerError::CantReadTryCounter)?;
 
         let try_counter = usize::from_be_bytes(usize_buff);
 
         file.read_exact(&mut byte_arr)
-            .map_err(|_| OperationLoggerError::CantReadOpType)?;
+            .map_err(|_| LoggerError::CantReadOpType)?;
 
         let op_type = Self::get_op_type(&mut file, byte_arr[0])?;
 
@@ -151,9 +289,9 @@ impl OperationLogger {
     fn write_op_type(
         file: &mut RwLockWriteGuard<'_, File>,
         op_type: &OperationType,
-    ) -> Result<(), OperationLoggerError> {
+    ) -> Result<(), LoggerError> {
         file.write_all(&[op_type.to_u8()])
-            .map_err(|_| OperationLoggerError::CantWriteOpType)?;
+            .map_err(|_| LoggerError::CantWriteOpType)?;
         match op_type {
             OperationType::Select(key) => Self::write_string_to_file(file, key),
             OperationType::Delete(key) => Self::write_string_to_file(file, key),
@@ -167,51 +305,497 @@ impl OperationLogger {
             }
         }
     }
-    fn write_log(&mut self, log: &OperationLog) -> Result<usize, OperationLoggerError> {
+    fn write_log(&mut self, log: &OperationLog) -> Result<usize, LoggerError> {
         let mut file = self.log_file.write().unwrap();
         let ret = file.metadata().unwrap().len();
 
         file.seek(io::SeekFrom::End(0))
-            .map_err(|_| OperationLoggerError::CantWriteId)?;
+            .map_err(|_| LoggerError::CantWriteId)?;
         file.write_all(&log.id.to_be_bytes())
-            .map_err(|_| OperationLoggerError::CantWriteId)?;
+            .map_err(|_| LoggerError::CantWriteId)?;
 
         file.write_all(&[match log.completed {
             true => 0x01,
             false => 0x0,
         }])
-        .map_err(|_| OperationLoggerError::CantWriteCompleted)?;
+        .map_err(|_| LoggerError::CantWriteCompleted)?;
 
         file.write_all(&log.try_counter.to_be_bytes())
-            .map_err(|_| OperationLoggerError::CantWriteTryCounter)?;
+            .map_err(|_| LoggerError::CantWriteTryCounter)?;
         Self::write_op_type(&mut file, &log.op_type)?;
 
         Ok(ret as usize)
     }
 
-    pub fn log_operation(&mut self,op_type: OperationType)->Result<OperationLog,OperationLoggerError>{
-        let mut ret=OperationLog{ completed: false, id: self.id.get(), start_location: 0, try_counter: 0, op_type };
-        let start_location=self.write_log(&ret)?;
-        ret.start_location=start_location;
-        self.id.set(self.id.get()+1);
+    pub fn log_operation(&mut self, op_type: OperationType) -> Result<OperationLog, LoggerError> {
+        let mut ret = OperationLog {
+            completed: false,
+            id: self.id,
+            start_location: 0,
+            try_counter: 0,
+            op_type,
+        };
+        let start_location = self.write_log(&ret)?;
+        ret.start_location = start_location;
+        self.id += 1;
 
         Ok(ret)
     }
-    pub fn read_log(&self,start_location:&usize)->Result<OperationLog,OperationLoggerError>{
+    pub fn read_log(&self, start_location: &usize) -> Result<OperationLog, LoggerError> {
         self.read_log_from_file(start_location)
     }
-    pub fn set_log_as_completed(&mut self,log_start:&usize)->Result<(),OperationLoggerError>{
-        let mut file=self.log_file.write().unwrap();
-        file.seek(io::SeekFrom::Start((*log_start+ID_SIZE) as u64)).map_err(|_| OperationLoggerError::CantMarkLogAsComplete)?;
-        file.write(&[0x1]).map_err(|_| OperationLoggerError::CantMarkLogAsComplete)?;
+    pub fn set_log_as_completed(&mut self, log_start: &usize) -> Result<(), LoggerError> {
+        let mut file = self.log_file.write().unwrap();
+        file.seek(io::SeekFrom::Start((*log_start + ID_SIZE) as u64))
+            .map_err(|_| LoggerError::CantMarkLogAsComplete)?;
+        file.write_all(&[0x1])
+            .map_err(|_| LoggerError::CantMarkLogAsComplete)?;
 
         Ok(())
     }
-    pub fn get_id(&self)->usize{
-        self.id.get()
+    pub fn increment_log_try_counter(&mut self, log: &OperationLog) -> Result<(), LoggerError> {
+        let mut file = self.log_file.write().unwrap();
+        file.seek(io::SeekFrom::Start(
+            (log.start_location + COMPLETED_SIZE + ID_SIZE) as u64,
+        ))
+        .map_err(|_| LoggerError::CantIncrementTryCounter)?;
+        file.write_all(&(log.try_counter + 1).to_be_bytes())
+            .map_err(|_| LoggerError::CantIncrementTryCounter)
+    }
+
+    pub fn get_id(&self) -> usize {
+        self.id
+    }
+
+    pub fn get_last_completed_operation(
+        &self,
+        start_offset: &usize,
+    ) -> Result<OperationLog, LoggerError> {
+        let mut ret = None;
+        let mut offset = *start_offset;
+
+        while let Ok(log) = self.read_log(&offset) {
+            if !log.completed {
+                break;
+            }
+            offset = log.start_location + Self::calc_op_log_size(&log.op_type);
+            ret = Some(log);
+        }
+
+        if let Some(ret) = ret {
+            Ok(ret)
+        } else {
+            Err(LoggerError::CantFindLog(*start_offset))
+        }
+    }
+    pub fn get_all_logs_from_start(&mut self, start_offset: &usize) -> Vec<OperationLog> {
+        let mut ret = vec![];
+        let mut offset = *start_offset;
+
+        while let Ok(log) = self.read_log(&offset) {
+            offset = log.start_location + Self::calc_op_log_size(&log.op_type);
+            ret.push(log);
+        }
+
+        ret
+    }
+    pub fn get_all_logs(&mut self) -> Vec<OperationLog> {
+        self.get_all_logs_from_start(&0)
     }
 }
+struct GeneralLogger<T: Write> {
+    output: Option<T>,
+    id: usize,
+}
 
+struct Restorer {
+    name: String,
+    last_op_id: usize,
+    last_op_start: usize,
+}
+impl Restorer {
+    pub fn load(name: String) -> Result<Self, LoggerError> {
+        let nodes_path = format!(
+            "{}\\{}{}{}",
+            RESTORER_DIR, name, VALUES_FILE_ENDING, FILE_ENDING
+        );
+        let values_path = format!(
+            "{}\\{}{}{}",
+            RESTORER_DIR, name, NODES_FILE_ENDING, FILE_ENDING
+        );
+        let config_path = format!(
+            "{}\\{}{}",
+            RESTORER_DIR, name, RESTORER_SETTINGS_FILE_ENDING
+        );
+
+        if !(Path::new(RESTORER_DIR).exists() && Path::new(RESTORER_DIR).is_dir()) {
+            fs::create_dir(RESTORER_DIR).map_err(|_| LoggerError::CantCreateBackupDir)?;
+            copy_file(
+                &format!("{}{}{}", name, VALUES_FILE_ENDING, FILE_ENDING),
+                &nodes_path,
+            )
+            .map_err(|_| LoggerError::CantCreateBackupDir)?;
+            copy_file(
+                &format!("{}{}{}", name, NODES_FILE_ENDING, FILE_ENDING),
+                &values_path,
+            )
+            .map_err(|_| LoggerError::CantCreateBackupDir)?;
+            fs::write(&config_path, &(0usize.to_be_bytes()))
+                .map_err(|_| LoggerError::CantCreateBackupDir)?;
+            fs::write(&config_path, &(0usize.to_be_bytes()))
+                .map_err(|_| LoggerError::CantCreateBackupDir)?;
+        }
+
+        let mut options = OpenOptions::new();
+        options.read(true).write(true);
+
+        let mut config_file = options
+            .open(&config_path)
+            .map_err(|_| LoggerError::CantLoadLastId)?;
+
+        let mut last_id = [0u8; SIZE_OF_USIZE];
+        config_file
+            .read_exact(&mut last_id)
+            .map_err(|_| LoggerError::CantLoadLastId)?;
+
+        let mut last_op_start = [0u8; SIZE_OF_USIZE];
+        config_file
+            .read_exact(&mut last_op_start)
+            .map_err(|_| LoggerError::CantLoadLastId)?;
+
+        Ok(Self {
+            name: name.clone(),
+            last_op_start: usize::from_be_bytes(last_op_start),
+            last_op_id: usize::from_be_bytes(last_id),
+        })
+    }
+
+    pub fn update(&mut self, op_logger: &OperationLogger) -> Result<(), LoggerError> {
+        let new_last_completed_log = op_logger.get_last_completed_operation(&self.last_op_start)?;
+
+        let nodes_path = format!(
+            "{}\\{}{}{}",
+            RESTORER_DIR, self.name, VALUES_FILE_ENDING, FILE_ENDING
+        );
+        let values_path = format!(
+            "{}\\{}{}{}",
+            RESTORER_DIR, self.name, NODES_FILE_ENDING, FILE_ENDING
+        );
+        let config_path = format!(
+            "{}\\{}{}",
+            RESTORER_DIR, self.name, RESTORER_SETTINGS_FILE_ENDING
+        );
+
+        fs::write(
+            &config_path,
+            self.last_op_id
+                .to_be_bytes()
+                .iter()
+                .cloned()
+                .chain(self.last_op_start.to_be_bytes().iter().cloned())
+                .collect::<Vec<u8>>(),
+        )
+        .map_err(|_| LoggerError::CantUpdateLog)?;
+
+        copy_file(
+            &format!("{}{}{}", self.name, VALUES_FILE_ENDING, FILE_ENDING),
+            &nodes_path,
+        )
+        .map_err(|_| LoggerError::CantUpdateLog)?;
+        copy_file(
+            &format!("{}{}{}", self.name, NODES_FILE_ENDING, FILE_ENDING),
+            &values_path,
+        )
+        .map_err(|_| LoggerError::CantUpdateLog)?;
+
+        Ok(())
+    }
+    pub fn should_update(&self, current_op_max_id: usize) -> bool {
+        self.last_op_id + RESTORER_RECOMMENDED_DIFF <= current_op_max_id
+    }
+    pub fn get_last_backed_operation_id(&self) -> usize {
+        self.last_op_id
+    }
+    pub fn get_last_backed_operation_start(&self) -> usize {
+        self.last_op_start
+    }
+    pub fn get_problematic_operations(&self, op_logger: &mut OperationLogger) -> Vec<OperationLog> {
+        op_logger
+            .get_all_logs_from_start(&self.last_op_start)
+            .into_iter()
+            .filter(|op| {
+                if op.try_counter >= MAX_TRY_COUNTER && !op.completed {
+                    op_logger
+                        .write_to_fail_log(&op.op_type)
+                        .expect("cant write op to fail log");
+                    op_logger
+                        .set_log_as_completed(&op.start_location)
+                        .expect("cant mark op as completed");
+                    false
+                } else {
+                    !op.completed
+                }
+            })
+            .collect()
+    }
+    pub fn restore(&self) -> Result<(), LoggerError> {
+        let nodes_path = format!(
+            "{}\\{}{}{}",
+            RESTORER_DIR, self.name, VALUES_FILE_ENDING, FILE_ENDING
+        );
+        let values_path = format!(
+            "{}\\{}{}{}",
+            RESTORER_DIR, self.name, NODES_FILE_ENDING, FILE_ENDING
+        );
+        let config_path = format!(
+            "{}\\{}{}",
+            RESTORER_DIR, self.name, RESTORER_SETTINGS_FILE_ENDING
+        );
+
+        copy_file(
+            &nodes_path,
+            &format!("{}{}{}", self.name, VALUES_FILE_ENDING, FILE_ENDING),
+        )
+        .map_err(|_| LoggerError::CantRestoreFilesFromBackup)?;
+        copy_file(
+            &values_path,
+            &format!("{}{}{}", self.name, NODES_FILE_ENDING, FILE_ENDING),
+        )
+        .map_err(|_| LoggerError::CantRestoreFilesFromBackup)?;
+        Ok(())
+    }
+}
+pub struct Logger {
+    op_logger: OperationLogger,
+    gen_logger: GeneralLogger<File>,
+    restorer: Restorer,
+    name: String,
+    general_logger_filename: Option<String>,
+}
+impl Logger
+
+{
+    pub fn log_operation(&mut self, op: OperationType) -> Result<usize, LoggerError> {
+        let op = self.op_logger.log_operation(op)?;
+        if self.restorer.should_update(op.id) {
+            self.restorer.update(&self.op_logger)?;
+        }
+        Ok(op.start_location)
+    }
+    pub fn log_select_operation(&mut self, key: &String) -> Result<usize, LoggerError> {
+        self.log_operation(OperationType::Select(key.clone()))
+    }
+    pub fn log_delete_operation(&mut self, key: &String) -> Result<usize, LoggerError> {
+        self.log_operation(OperationType::Delete(key.clone()))
+    }
+    pub fn log_insert_operation(
+        &mut self,
+        key: &String,
+        value: &String,
+    ) -> Result<usize, LoggerError> {
+        self.log_operation(OperationType::Insert(key.clone(), value.clone()))
+    }
+    pub fn log_update_operation(
+        &mut self,
+        key: &String,
+        value: &String,
+    ) -> Result<usize, LoggerError> {
+        self.log_operation(OperationType::Update(key.clone(), value.clone()))
+    }
+
+    pub fn log(&mut self, log_type: LogType, message: String) -> Result<(), LoggerError> {
+        self.gen_logger.log(log_type, message)
+    }
+    pub fn log_info(&mut self, message: String) -> Result<(), LoggerError> {
+        self.log(LogType::Info, message)
+    }
+    pub fn log_warning(&mut self, message: String) -> Result<(), LoggerError> {
+        self.log(LogType::Warning, message)
+    }
+    pub fn log_error(&mut self, message: String) -> Result<(), LoggerError> {
+        self.log(LogType::Error, message)
+    }
+
+    pub fn restore(&mut self, tree: &mut BPlusTree) {
+        self.restorer
+            .restore()
+            .expect("cant restore files form backup files");
+        for op in self
+            .restorer
+            .get_problematic_operations(&mut self.op_logger)
+            .into_iter()
+        {
+            self.op_logger
+                .increment_log_try_counter(&op)
+                .expect(&format!(
+                    "cant update try counter for operation with id:{}",
+                    op.id
+                ));
+            match op.op_type {
+                OperationType::Insert(key, value) => {
+                    tree.insert(key, value)
+                        .expect(&format!("cant redo operation with id:{}", op.id));
+                }
+                OperationType::Select(key) => {
+                    tree.search(key)
+                        .expect(&format!("cant redo operation with id:{}", op.id));
+                }
+                OperationType::Delete(key) => {
+                    tree.delete(key)
+                        .expect(&format!("cant redo operation with id:{}", op.id));
+                }
+                OperationType::Update(_, _) => todo!(),
+            }
+        }
+    }
+    //[OP_ID - 8b][OP_NAME_LEN - 8b][OP_NAME - OP_NAME_LENb][GEN_ID - 8b][GEN_NAME_LEN - 8b][GEN_NAME - GEN_NAME_LENb]
+    fn write_logger_information(
+        id: usize,
+        file_name: &String,
+        file: &mut File,
+    ) -> Result<(), LoggerError> {
+        file.write_all(&id.to_be_bytes())
+            .map_err(|_| LoggerError::CantWriteToConfigFile)?;
+        file.write_all(&file_name.len().to_be_bytes())
+            .map_err(|_| LoggerError::CantWriteToConfigFile)?;
+        file.write_all(file_name.as_bytes())
+            .map_err(|_| LoggerError::CantWriteToConfigFile)?;
+        Ok(())
+    }
+    fn read_logger_information(file: &mut File) -> Result<(usize, String), LoggerError> {
+        let mut usize_as_byes = [0; SIZE_OF_USIZE];
+
+        file.read_exact(&mut usize_as_byes)
+            .map_err(|_| LoggerError::CantReadFromConfigFile)?;
+        let id = usize::from_be_bytes(usize_as_byes);
+
+        file.read_exact(&mut usize_as_byes)
+            .map_err(|_| LoggerError::CantReadFromConfigFile)?;
+
+        let mut name_as_bytes = vec![0u8; usize::from_be_bytes(usize_as_byes)];
+        file.read_exact(&mut name_as_bytes)
+            .map_err(|_| LoggerError::CantReadFromConfigFile)?;
+
+        Ok((
+            id,
+            String::from_utf8(name_as_bytes).map_err(|_| LoggerError::CantReadFromConfigFile)?,
+        ))
+    }
+    fn save_changes_to_config_file(&self) -> Result<(), LoggerError> {
+        let path_to_config_file_as_string = format!("{}.{}", self.name, LOGGER_CONFIG_FILENAME);
+        let path_to_config_file = Path::new(&path_to_config_file_as_string);
+        let mut open_options = OpenOptions::new();
+
+        let mut file = open_options
+            .write(true)
+            .open(path_to_config_file)
+            .map_err(|_| LoggerError::CantWriteToConfigFile)?;
+
+        file.seek(io::SeekFrom::Start(0))
+            .map_err(|_| LoggerError::CantWriteToConfigFile)?;
+        Self::write_logger_information(
+            self.op_logger.id,
+            &format!("{}{}", self.name, OPERATION_LOGGER_FILE_ENDING),
+            &mut file,
+        )?;
+        let fname = "".to_string();
+        Self::write_logger_information(
+            self.gen_logger.id,
+            if let Some(fname) = &self.general_logger_filename {
+                fname
+            } else {
+                &fname
+            },
+            &mut file,
+        )
+    }
+    fn load_from_logger_config_file(
+        name: &String,
+    ) -> Result<(OperationLogger, GeneralLogger<File>, Option<String>), LoggerError> {
+        let path_to_config = format!("{}.{}", name, LOGGER_CONFIG_FILENAME);
+        let path_to_config_file = Path::new(&path_to_config);
+        let mut open_options = OpenOptions::new();
+
+        let mut file = open_options
+            .read(true)
+            .write(true)
+            .open(path_to_config_file)
+            .map_err(|_| LoggerError::CantReadFromConfigFile)?;
+        file.seek(io::SeekFrom::Start(0))
+            .map_err(|_| LoggerError::CantReadFromConfigFile)?;
+        let (op_id, op_path) = Self::read_logger_information(&mut file)
+            .map_err(|_| LoggerError::CantReadFromConfigFile)?;
+        let (gen_id, gen_path) = Self::read_logger_information(&mut file)
+            .map_err(|_| LoggerError::CantReadFromConfigFile)?;
+
+        Ok((
+            OperationLogger {
+                log_file: RwLock::new(
+                    open_options
+                        .open(&op_path)
+                        .map_err(|_| LoggerError::CantReadFromConfigFile)?,
+                ),
+                id: op_id,
+            },
+            if gen_path == "" {
+                GeneralLogger::default()
+            } else {
+                GeneralLogger::new(
+                    open_options
+                        .open(&gen_path)
+                        .map_err(|_| LoggerError::CantReadFromConfigFile)?,
+                    gen_id,
+                )
+            },
+            if gen_path == "" { Some(gen_path) } else { None },
+        ))
+    }
+    pub fn new(name: &String) -> Result<Self, LoggerError> {
+        let path_to_config_file_as_string = format!("{}.{}", name, LOGGER_CONFIG_FILENAME);
+        let path_to_config_file = Path::new(&path_to_config_file_as_string);
+        if path_to_config_file.exists() {
+            let (op_logger, gen_logger, general_logger_filename) =
+                Self::load_from_logger_config_file(name)?;
+            Ok(Self {
+                op_logger,
+                gen_logger,
+                restorer: Restorer::load(name.clone())?,
+                name: name.clone(),
+                general_logger_filename,
+            })
+        } else {
+            let mut open_options = OpenOptions::new();
+            let mut config_file = open_options
+                .create(true)
+                .write(true)
+                .read(true)
+                .open(path_to_config_file)
+                .map_err(|_| LoggerError::CantWriteToConfigFile)?;
+            let mut ret = Self {
+                op_logger: OperationLogger {
+                    log_file: RwLock::new(
+                        open_options
+                            .open(&format!("{}{}", name, OPERATION_LOGGER_FILE_ENDING))
+                            .map_err(|_| LoggerError::CantWriteToConfigFile)?,
+                    ),
+                    id: 1,
+                },
+                gen_logger: GeneralLogger::new(
+                    open_options
+                        .open(&format!("{}{}", name, ".log"))
+                        .map_err(|_| LoggerError::CantWriteToConfigFile)?,
+                    1,
+                ),
+                restorer: Restorer::load(name.clone())?,
+                name: name.clone(),
+                general_logger_filename: Some(format!("{}{}", name, ".log")),
+            };
+            ret.save_changes_to_config_file()?;
+
+            Ok(ret)
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -233,11 +817,16 @@ mod tests {
                     .open(TEST_FILE_PATH)
                     .unwrap(),
             ),
-            id: Cell::new(1),
+            id: 1,
         };
 
         // Act
-        let log = logger.log_operation(OperationType::Insert("key".to_string(), "value".to_string())).unwrap();
+        let log = logger
+            .log_operation(OperationType::Insert(
+                "key".to_string(),
+                "value".to_string(),
+            ))
+            .unwrap();
 
         // Assert
         assert_eq!(log.id, 1);
@@ -259,9 +848,14 @@ mod tests {
                     .open(TEST_FILE_PATH)
                     .unwrap(),
             ),
-            id: Cell::new(1),
+            id: 1,
         };
-        let log = logger.log_operation(OperationType::Insert("key".to_string(), "value".to_string())).unwrap();
+        let log = logger
+            .log_operation(OperationType::Insert(
+                "key".to_string(),
+                "value".to_string(),
+            ))
+            .unwrap();
 
         // Act
         let read_log = logger.read_log(&log.start_location).unwrap();
@@ -287,18 +881,287 @@ mod tests {
                     .open(TEST_FILE_PATH)
                     .unwrap(),
             ),
-            id: Cell::new(1),
+            id: 1,
         };
-        let log = logger.log_operation(OperationType::Insert("key".to_string(), "value".to_string())).unwrap();
+        let log = logger
+            .log_operation(OperationType::Insert(
+                "key".to_string(),
+                "value".to_string(),
+            ))
+            .unwrap();
 
         // Act
         logger.set_log_as_completed(&log.start_location).unwrap();
         let mut file = logger.log_file.write().unwrap();
         let mut completed_byte = [0u8];
-        file.seek(io::SeekFrom::Start(log.start_location as u64 + ID_SIZE as u64)).unwrap();
+        file.seek(io::SeekFrom::Start(
+            log.start_location as u64 + ID_SIZE as u64,
+        ))
+        .unwrap();
         file.read_exact(&mut completed_byte).unwrap();
 
         // Assert
         assert_eq!(completed_byte[0], 0x01); // Should be marked as completed
     }
+    
+    #[test]
+    fn test_default_general_logger() {
+        let logger: GeneralLogger<File> = Default::default();
+        assert_eq!(logger.id, 1);
+        assert!(logger.output.is_none());
+    }
+
+    #[test]
+    fn test_new_general_logger_with_file() {
+        let temp_file = File::create("test_log_file.log").expect("Failed to create temp file");
+        let logger = GeneralLogger::new(temp_file.try_clone().unwrap(), 1);
+
+        assert_eq!(logger.id, 1);
+        assert!(logger.output.is_some());
+    }
+
+    #[test]
+    fn test_log_info_to_stdout() {
+        let mut logger = GeneralLogger::new(std::io::stdout().lock(), 1);
+
+        let result = logger.info("Test message".to_string());
+
+        assert!(result.is_ok());
+        // Check if something was written to stdout (cannot really capture stdout in a test)
+    }
+
+    #[test]
+    fn test_log_error_to_file() {
+        let temp_file = File::create("test_log_file.log").expect("Failed to create temp file");
+        let mut logger = GeneralLogger::new(temp_file.try_clone().unwrap(), 1);
+
+        let result = logger.error("Test error message".to_string());
+
+        assert!(result.is_ok());
+
+        let mut contents = String::new();
+        let mut file = File::open("test_log_file.log").expect("Failed to open temp file");
+        file.read_to_string(&mut contents)
+            .expect("Failed to read temp file contents");
+
+        assert!(contents.contains("Error"));
+        assert!(contents.contains("Test error message"));
+
+        // Clean up: Remove the created file
+        fs::remove_file("test_log_file.log").expect("Failed to remove temp file");
+    }
+
+    #[test]
+    fn test_log_warning_to_file() {
+        let temp_file = File::create("test_log_file.log").expect("Failed to create temp file");
+        let mut logger = GeneralLogger::new(temp_file.try_clone().unwrap(), 1);
+
+        let result = logger.warning("Test warning message".to_string());
+
+        assert!(result.is_ok());
+
+        let mut contents = String::new();
+        let mut file = File::open("test_log_file.log").expect("Failed to open temp file");
+        file.read_to_string(&mut contents)
+            .expect("Failed to read temp file contents");
+
+        assert!(contents.contains("Warning"));
+        assert!(contents.contains("Test warning message"));
+
+        // Clean up: Remove the created file
+        fs::remove_file("test_log_file.log").expect("Failed to remove temp file");
+    }
+
+    #[test]
+    fn test_log_to_file() {
+        let temp_file = File::create("test_log_file.log").expect("Failed to create temp file");
+        let mut logger = GeneralLogger::new(temp_file.try_clone().unwrap(), 1);
+
+        let result = logger.log(LogType::Info, "Test log message".to_string());
+
+        assert!(result.is_ok());
+
+        let mut contents = String::new();
+        let mut file = File::open("test_log_file.log").expect("Failed to open temp file");
+        file.read_to_string(&mut contents)
+            .expect("Failed to read temp file contents");
+
+        assert!(contents.contains("Info"));
+        assert!(contents.contains("Test log message"));
+
+        // Clean up: Remove the created file
+        fs::remove_file("test_log_file.log").expect("Failed to remove temp file");
+    }
+
+
+    const TEST_LOG_FILE_PATH: &str = "test_operation_log_file.log";
+
+    #[test]
+    fn test_new_operation_logger() {
+        let log_file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(TEST_LOG_FILE_PATH)
+            .expect("Failed to create test log file");
+        let logger = OperationLogger::new(log_file, 1);
+
+        assert_eq!(logger.id, 1);
+    }
+
+    #[test]
+    fn test_log_operation() {
+        let log_file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(TEST_LOG_FILE_PATH)
+            .expect("Failed to create test log file");
+        let mut logger = OperationLogger::new(log_file, 1);
+
+        let op_type = OperationType::Insert("key".to_string(), "value".to_string());
+        let result = logger.log_operation(op_type.clone());
+
+        assert!(result.is_ok());
+        let log = result.unwrap();
+
+        assert_eq!(log.id, 1);
+        assert_eq!(log.completed, false);
+
+        // Clean up: Remove the created file
+        fs::remove_file(TEST_LOG_FILE_PATH).expect("Failed to remove test log file");
+    }
+
+    #[test]
+    fn test_read_log() {
+        let log_file = OpenOptions::new().read(true)
+            .write(true)
+            .create(true)
+            .open(TEST_LOG_FILE_PATH)
+            .expect("Failed to create test log file");
+        let mut logger = OperationLogger::new(log_file, 1);
+
+        let log = logger.log_operation(OperationType::Insert("key".to_string(), "value".to_string())).expect("Failed to log operation");
+        eprintln!("log.start_location = {:#?}", log.start_location);
+        let read_log = logger.read_log(&log.start_location).expect("Failed to read log");
+
+        assert_eq!(read_log.id, log.id);
+        assert_eq!(read_log.completed, log.completed);
+
+        // Clean up: Remove the created file
+        fs::remove_file(TEST_LOG_FILE_PATH).expect("Failed to remove test log file");
+    }
+
+    #[test]
+    fn test_set_log_as_completed() {
+        let log_file = OpenOptions::new().read(true)
+            .write(true)
+            .create(true)
+            .open(TEST_LOG_FILE_PATH)
+            .expect("Failed to create test log file");
+        let mut logger = OperationLogger::new(log_file, 1);
+
+        let op_type = OperationType::Insert("key".to_string(), "value".to_string());
+        let log = logger.log_operation(op_type.clone()).expect("Failed to log operation");
+
+        let result = logger.set_log_as_completed(&log.start_location);
+
+        assert!(result.is_ok());
+        let log_after=logger.read_log(&log.start_location).expect("cant read log from file");
+        assert!(log_after.completed);
+        // Clean up: Remove the created file
+        fs::remove_file(TEST_LOG_FILE_PATH).expect("Failed to remove test log file");
+    }
+
+    #[test]
+    fn test_increment_log_try_counter() {
+        let log_file = OpenOptions::new().read(true)
+            .write(true)
+            .create(true)
+            .open(TEST_LOG_FILE_PATH)
+            .expect("Failed to create test log file");
+        let mut logger = OperationLogger::new(log_file, 1);
+
+        let op_type = OperationType::Insert("key".to_string(), "value".to_string());
+        let log = logger.log_operation(op_type.clone()).expect("Failed to log operation");
+
+        let result = logger.increment_log_try_counter(&log);
+
+        assert!(result.is_ok());
+        let log_after=logger.read_log(&log.start_location).expect("cant read log from file");
+        assert_eq!(log_after.try_counter,log.try_counter+1);
+        // Clean up: Remove the created file
+        fs::remove_file(TEST_LOG_FILE_PATH).expect("Failed to remove test log file");
+    }
+
+    #[test]
+    fn test_get_last_completed_operation() {
+        let log_file = OpenOptions::new().read(true)
+            .write(true)
+            .create(true)
+            .open(TEST_LOG_FILE_PATH)
+            .expect("Failed to create test log file");
+        let mut logger = OperationLogger::new(log_file, 1);
+
+        let op_type = OperationType::Insert("key".to_string(), "value".to_string());
+        let _log1 = logger.log_operation(op_type.clone()).expect("Failed to log operation");
+
+        let op_type = OperationType::Update("key".to_string(), "new_value".to_string());
+        let _log2 = logger.log_operation(op_type.clone()).expect("Failed to log operation");
+
+        let result = logger.get_last_completed_operation(&0);
+
+        assert!(result.is_ok());
+        let log = result.unwrap();
+
+        assert_eq!(log.op_type, OperationType::Insert("key".to_string(), "value".to_string()));
+
+        // Clean up: Remove the created file
+        fs::remove_file(TEST_LOG_FILE_PATH).expect("Failed to remove test log file");
+    }
+
+    #[test]
+    fn test_get_all_logs_from_start() {
+        let log_file = OpenOptions::new().read(true)
+            .write(true)
+            .create(true)
+            .open(TEST_LOG_FILE_PATH)
+            .expect("Failed to create test log file");
+        let mut logger = OperationLogger::new(log_file, 1);
+
+        let op_type = OperationType::Insert("key".to_string(), "value".to_string());
+        let _log1 = logger.log_operation(op_type.clone()).expect("Failed to log operation");
+
+        let op_type = OperationType::Update("key".to_string(), "new_value".to_string());
+        let log2 = logger.log_operation(op_type.clone()).expect("Failed to log operation");
+        println!("log2 start={}",log2.start_location);
+        let logs = logger.get_all_logs_from_start(&0);
+
+        assert_eq!(logs.len(), 2);
+
+        // Clean up: Remove the created file
+        fs::remove_file(TEST_LOG_FILE_PATH).expect("Failed to remove test log file");
+    }
+
+    #[test]
+    fn test_get_all_logs() {
+        let log_file = OpenOptions::new().read(true)
+            .write(true)
+            .create(true)
+            .open(TEST_LOG_FILE_PATH)
+            .expect("Failed to create test log file");
+        let mut logger = OperationLogger::new(log_file, 1);
+
+        let op_type = OperationType::Insert("key".to_string(), "value".to_string());
+        let _log1 = logger.log_operation(op_type.clone()).expect("Failed to log operation");
+
+        let op_type = OperationType::Update("key".to_string(), "new_value".to_string());
+        let _log2 = logger.log_operation(op_type.clone()).expect("Failed to log operation");
+
+        let logs = logger.get_all_logs();
+
+        assert_eq!(logs.len(), 2);
+
+        // Clean up: Remove the created file
+        fs::remove_file(TEST_LOG_FILE_PATH).expect("Failed to remove test log file");
+    }
 }
+
