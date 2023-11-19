@@ -549,7 +549,6 @@ impl Restorer {
                         .expect("cant mark op as completed");
                     false
                 } else {
-                    println!("op has completed: {}",op.completed);
                     !op.completed
                 }
             })
@@ -591,31 +590,34 @@ pub struct Logger {
     general_logger_filename: Option<String>,
 }
 impl Logger {
-    pub fn log_operation(&mut self, op: OperationType) -> Result<usize, LoggerError> {
+    pub fn log_operation(&mut self, op: OperationType) -> Result<OperationLog, LoggerError> {
         let op = self.op_logger.log_operation(op)?;
         if self.restorer.should_update(op.id) {
             self.restorer.update(&self.op_logger)?;
         }
-        Ok(op.start_location)
+        Ok(op)
     }
-    pub fn log_select_operation(&mut self, key: &String) -> Result<usize, LoggerError> {
+    pub fn mark_operation_as_completed(&mut self,operation:&OperationLog)->Result<(),LoggerError>{
+        self.op_logger.mark_log_as_completed(&operation.start_location)
+    }
+    pub fn log_select_operation(&mut self, key: &String) -> Result<OperationLog, LoggerError> {
         self.log_operation(OperationType::Select(key.clone()))
     }
-    pub fn log_delete_operation(&mut self, key: &String) -> Result<usize, LoggerError> {
+    pub fn log_delete_operation(&mut self, key: &String) -> Result<OperationLog, LoggerError> {
         self.log_operation(OperationType::Delete(key.clone()))
     }
     pub fn log_insert_operation(
         &mut self,
         key: &String,
         value: &String,
-    ) -> Result<usize, LoggerError> {
+    ) -> Result<OperationLog, LoggerError> {
         self.log_operation(OperationType::Insert(key.clone(), value.clone()))
     }
     pub fn log_update_operation(
         &mut self,
         key: &String,
         value: &String,
-    ) -> Result<usize, LoggerError> {
+    ) -> Result<OperationLog, LoggerError> {
         self.log_operation(OperationType::Update(key.clone(), value.clone()))
     }
 
@@ -1136,10 +1138,10 @@ mod tests {
         let mut logger = OperationLogger::new(log_file, 1);
 
         let op_type = OperationType::Insert("key".to_string(), "value".to_string());
-        let _log1 = logger
+        let log1 = logger
             .log_operation(op_type.clone())
             .expect("Failed to log operation");
-
+        logger.mark_log_as_completed(&log1.start_location).expect("cnat mark log 1 as completed");
         let op_type = OperationType::Update("key".to_string(), "new_value".to_string());
         let _log2 = logger
             .log_operation(op_type.clone())
@@ -1421,11 +1423,29 @@ mod tests {
 
         let problematic_ops = restorer.get_un_completed_operations(&mut op_logger);
         assert_eq!(problematic_ops.len(), 1);
-        
+
         // Clean up: Remove the created files and directory
         fs::remove_file(TEST_OP_LOGGER_FILE_PATH).expect("Failed to remove test log file");
         fs::remove_dir_all(Restorer::get_restorer_path(&restorer.name)).expect("Failed to remove test restorer directory");
         fs::remove_file(&format!("{}{}{}", restorer_name, VALUES_FILE_ENDING, FILE_ENDING)).expect("cant remove values");
         fs::remove_file(&format!("{}{}{}", restorer_name, NODES_FILE_ENDING, FILE_ENDING)).expect("cant remove nodes");
+    }
+    #[test]
+    fn test_logger_new() {
+        let logger_name = "test_logger_new".to_string();
+
+        // Create a test directory with dummy files
+        fs::write(
+            &format!("{}{}{}", logger_name, VALUES_FILE_ENDING, FILE_ENDING),
+            b"",
+        )
+        .expect("Failed to create test values file");
+        fs::write(
+            &format!("{}{}{}", logger_name, NODES_FILE_ENDING, FILE_ENDING),
+            b"",
+        ).expect("Failed to create test nodes file");
+        let _logger = Logger::new(&logger_name).expect("cant create new logger");
+        fs::remove_file(&format!("{}{}{}", logger_name, VALUES_FILE_ENDING, FILE_ENDING)).expect("cant remove values");
+        fs::remove_file(&format!("{}{}{}", logger_name, NODES_FILE_ENDING, FILE_ENDING)).expect("cant remove nodes");
     }
 }
