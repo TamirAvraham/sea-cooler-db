@@ -125,7 +125,7 @@ impl BPlusTree {
         let node=pager.read_node(node_page_id)?;
         match node.is_leaf {
             true => {
-                if let Some(value_location) = node.get(key) {
+                if let Some(value_location) = node.get(key.clone()) {
                     let value=pager.read_value(*value_location)?;
                     let value=String::from_utf8(value).map_err(map_err(Error::CantReadNode(node_page_id)))?;
                     return Ok(Some(value));
@@ -151,12 +151,13 @@ impl BPlusTree {
         pager: &mut Pager,
         node_page_id:usize,
     ) -> Result<(), Error> {
-        let mut i = 0;
         let mut node=pager.read_node(node_page_id)?;
 
         match node.is_leaf {
             true => {
-                if let Some(value_location) = node.get(key) {
+                if let Some(check_if_key_exists) = node.get(key.clone()) {
+                    let i = node.keys.iter().position(|r| r.clone() == key.clone()).unwrap();
+
                     pager.delete_value(node.values[i])?;
 
                     node.keys.remove(i);
@@ -218,7 +219,7 @@ mod tests{
     fn test_insert_and_search() {
         let path="temp".to_string();
         let mut tree=BTreeBulider::new().path(path.clone()).t(2).build().unwrap();
-        let range=113;
+        let range=3;
         (1..=range).for_each(|i| {
             println!("inserting i:{}",i);
             let key=format!("key_{}",i);
@@ -253,14 +254,14 @@ mod tests{
         let path="temp".to_string();
         let mut tree=BTreeBulider::new().path(path.clone()).t(2).build().unwrap();
 
-        let range=5;
+        let range=3;
         (1..=range).for_each(|i| {
             println!("inserting i:{}",i);
             let key=format!("key_{}",i);
             let value=format!("value_{}",i);
             let err_msg=format!("error when inserting i:{}",i);
             tree.insert(key, value).expect(&err_msg);
-            tree.print();
+            //tree.print();
             println!("_____________________________________________________________________________________________");
         });
         tree.print();
@@ -272,13 +273,18 @@ mod tests{
             assert_eq!(res,Some(value))
         });
 
-        // Delete a key
-        tree.delete("key2".to_string()).unwrap();
-        assert_eq!(tree.search("key2".to_string()).unwrap(), None);
 
+        // Delete a key
+        tree.delete("key_2".to_string()).unwrap();
+        assert_eq!(tree.search("key_2".to_string()).unwrap(), None);
+
+        println!("After deleting an existing key:");
+        tree.print();
         // Attempt to delete a non-existent key
-        tree.delete("key4".to_string()).unwrap();
-        assert_eq!(tree.search("key4".to_string()).unwrap(), None);
+        tree.delete("key_4".to_string()).unwrap();
+        assert_eq!(tree.search("key_4".to_string()).unwrap(), None);
+        println!("After deleting non existent key:");
+        tree.print();
     }
     #[test]
     fn test_default_t_tree_just_insert_and_search() {

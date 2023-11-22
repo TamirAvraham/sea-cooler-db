@@ -117,13 +117,15 @@ impl Node {
     }
     pub fn get(&self, key: String) -> Option<&usize> {
         let mut i = 0;
-
         while i < self.keys.len() && self.keys[i] < key {
             i += 1;
         }
-        if self.is_leaf && self.keys[i] != key {
+        if i >= self.keys.len() || (self.is_leaf && self.keys[i] != key) {
+            // println!("Wrong key - ({})", key.clone());   // You can delete these but just so you know, they're very helpful in debugging
+            // println!("All the keys - {:?}", self.keys);
             None
         } else {
+            //println!("Correct key - {}", key.clone());    // Also helpful in debugging
             self.values.get(i)
         }
     }
