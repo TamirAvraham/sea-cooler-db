@@ -85,7 +85,7 @@ impl<T> GeneralLogger<T>
 where
     T: Write,
 {
-    fn new(output: T, id: usize) -> GeneralLogger<T> {
+    pub fn new(output: T, id: usize) -> GeneralLogger<T> {
         GeneralLogger {
             output: Some(output),
             id,
@@ -405,7 +405,7 @@ impl OperationLogger {
         self.get_all_logs_from_start(&0)
     }
 }
-struct GeneralLogger<T: Write> {
+pub struct GeneralLogger<T: Write> {
     output: Option<T>,
     id: usize,
 }

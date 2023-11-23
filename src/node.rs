@@ -117,14 +117,32 @@ impl Node {
     }
     pub fn get(&self, key: String) -> Option<&usize> {
         let mut i = 0;
-
         while i < self.keys.len() && self.keys[i] < key {
             i += 1;
         }
-        if self.is_leaf && self.keys[i] != key {
+        if (if self.is_leaf {
+            i >= self.keys.len()
+        } else {
+            i > self.keys.len()
+        }) || (self.is_leaf && self.keys[i] != key)
+        {
             None
         } else {
             self.values.get(i)
+        }
+    }
+    pub fn update(&mut self, key: String, value: usize) {
+        let mut i = 0;
+        while i < self.keys.len() && self.keys[i] < key {
+            i += 1;
+        }
+        if !((if self.is_leaf {
+            i >= self.keys.len()
+        } else {
+            i > self.keys.len()
+        }) || self.keys[i] != key)
+        {
+            self.values[i] = value;
         }
     }
     pub fn split(&mut self, pager: &mut Pager, t: usize) -> InternalResult<Node> {
@@ -149,8 +167,11 @@ impl Node {
         let parent = if self.parent_page_id != 0 {
             let mut parent = pager.read_node(self.parent_page_id)?;
 
-            let current_index_in_parent =
-                parent.values.iter().position(|&x| x==self.page_id).expect(&format!(
+            let current_index_in_parent = parent
+                .values
+                .iter()
+                .position(|&x| x == self.page_id)
+                .expect(&format!(
                     "cant find a key that needs to be in the tree. value was {} values were {:?}",
                     self.page_id, parent.values
                 ));
@@ -185,7 +206,7 @@ impl Node {
 
             parent
         };
-        
+
         if !self.is_leaf {
             for &page_id in new_node.values.iter() {
                 pager.update_node_parent(page_id, new_node_page_id)?;
@@ -219,6 +240,28 @@ impl Node {
         }
 
         Ok(())
+    }
+    #[cfg(test)]
+    pub fn tree_to_string(&self, pager: &Pager) -> InternalResult<String> {
+        self.node_to_string("", pager)
+    }
+
+    #[cfg(test)]
+    fn node_to_string(&self, prefix: &str, pager: &Pager) -> InternalResult<String> {
+        let mut result = format!("{}Node at page: {}\n", prefix, self.page_id);
+        result.push_str(&format!("{}Keys: {:?}\n", prefix, self.keys));
+        result.push_str(&format!("{}Values: {:?}\n", prefix, self.values));
+
+        if !self.is_leaf {
+            for value in &self.values {
+                let child_node = pager.read_node(*value)?;
+                result.push_str(
+                    &child_node.node_to_string(format!("{}   |  ", prefix).as_str(), pager)?,
+                );
+            }
+        }
+
+        Ok(result)
     }
 }
 
