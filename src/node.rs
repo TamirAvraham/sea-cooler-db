@@ -120,7 +120,12 @@ impl Node {
         while i < self.keys.len() && self.keys[i] < key {
             i += 1;
         }
-        if i >= self.keys.len() || (self.is_leaf && self.keys[i] != key) {
+        if (if self.is_leaf {
+            i >= self.keys.len()
+        } else {
+            i > self.keys.len()
+        }) || (self.is_leaf && self.keys[i] != key)
+        {
             // println!("Wrong key - ({})", key.clone());   // You can delete these but just so you know, they're very helpful in debugging
             // println!("All the keys - {:?}", self.keys);
             None
@@ -151,8 +156,11 @@ impl Node {
         let parent = if self.parent_page_id != 0 {
             let mut parent = pager.read_node(self.parent_page_id)?;
 
-            let current_index_in_parent =
-                parent.values.iter().position(|&x| x==self.page_id).expect(&format!(
+            let current_index_in_parent = parent
+                .values
+                .iter()
+                .position(|&x| x == self.page_id)
+                .expect(&format!(
                     "cant find a key that needs to be in the tree. value was {} values were {:?}",
                     self.page_id, parent.values
                 ));
@@ -187,7 +195,7 @@ impl Node {
 
             parent
         };
-        
+
         if !self.is_leaf {
             for &page_id in new_node.values.iter() {
                 pager.update_node_parent(page_id, new_node_page_id)?;

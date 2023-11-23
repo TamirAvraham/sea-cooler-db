@@ -219,7 +219,7 @@ mod tests{
     fn test_insert_and_search() {
         let path="temp".to_string();
         let mut tree=BTreeBulider::new().path(path.clone()).t(2).build().unwrap();
-        let range=3;
+        let range=113;
         (1..=range).for_each(|i| {
             println!("inserting i:{}",i);
             let key=format!("key_{}",i);
@@ -241,7 +241,27 @@ mod tests{
             let res=tree.search(key).expect(&err_msg);
             assert_eq!(res,Some(value),"{}", err_msg)
         });
-        
+        println!("completed search");
+        (1..=range).rev().for_each(|i|{
+            let key=format!("key_{}",i);
+            let err_msg=format!("error when serching for i:{}",i);
+            println!("deleting {}",key.clone());
+            tree.delete(key.clone()).expect(&err_msg);
+            (1..i).for_each(|i| {
+                let key=format!("key_{}",i);
+                let value=format!("value_{}",i);
+                let err_msg=format!("error when serching for i:{}",i);
+                println!("searching {}",key.clone());
+                let res=tree.search(key).expect(&err_msg);
+                assert_eq!(res,Some(value),"{}", err_msg);
+            });
+            let res=tree.search(key).expect(&err_msg);
+            assert_eq!(res,None,"{}",err_msg);
+        });
+        println!("delete complete");
+
+
+
         cleanup_temp_files();
         println!("completed tree tests with t=2");
         
@@ -290,7 +310,7 @@ mod tests{
     fn test_default_t_tree_just_insert_and_search() {
         let path="temp".to_string();
         let mut tree=BTreeBulider::new().path(path.clone()).t(DEFAULT_T).build().unwrap();
-        let range=DEFAULT_T*105;
+        let range=DEFAULT_T*100;
         (1..=range).for_each(|i| {
             println!("inserting i:{}",i);
             let key=format!("key_{}",i);
@@ -310,7 +330,25 @@ mod tests{
             assert_eq!(res,Some(value),"{}", err_msg);
 
         });
-        
+        println!("completed search");
+        (1..=range).rev().for_each(|i|{
+            let key=format!("key_{}",i);
+            let err_msg=format!("error when serching for i:{}",i);
+            println!("deleting {}",key.clone());
+            tree.delete(key.clone()).expect(&err_msg);
+            (1..i).for_each(|i| {
+                let key=format!("key_{}",i);
+                let value=format!("value_{}",i);
+                let err_msg=format!("error when serching for i:{}",i);
+                println!("searching {}",key.clone());
+                let res=tree.search(key).expect(&err_msg);
+                assert_eq!(res,Some(value),"{}", err_msg);
+            });
+            let res=tree.search(key).expect(&err_msg);
+            assert_eq!(res,None,"{}",err_msg);
+        });
+        println!("delete complete");
+
         cleanup_temp_files();
         println!("completed tree tests with t=34");
     }
