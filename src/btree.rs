@@ -1,4 +1,8 @@
-use std::{fs::OpenOptions, path::Path};
+use std::{
+    fs::{self, OpenOptions},
+    io::{Read, Seek, Write},
+    path::Path,
+};
 
 use crate::{
     error::{map_err, Error, InternalResult},
@@ -19,6 +23,7 @@ pub const DEFAULT_CACHE_SIZE: usize = 100;
 pub struct BTreeBuilder {
     path: String,
     t: usize,
+    name: String,
 }
 
 impl BTreeBuilder {
@@ -26,6 +31,7 @@ impl BTreeBuilder {
         Self {
             path: "".to_string(),
             t: 0,
+            name: "".to_string(),
         }
     }
     pub fn path(mut self, path: String) -> Self {
@@ -36,9 +42,25 @@ impl BTreeBuilder {
         self.t = t;
         self
     }
+    pub fn name(mut self, name: &String) -> Self {
+        self.name = name.clone();
+        self
+    }
+    fn read_root_id_from_file(&self) -> Result<usize, Error> {
+        let mut options = OpenOptions::new();
 
-    pub fn build(&self) -> Result<BPlusTree, Error> {
-        if (self.path == "") || (self.t > DEFAULT_T || self.t <= 0) {
+        let mut file = options
+            .read(true)
+            .open(format!("{}{}", self.name, FILE_ENDING))
+            .map_err(|e| Error::FileError)?;
+        let mut root_id_bytes = [0; SIZE_OF_USIZE];
+        file.read_exact(&mut root_id_bytes)
+            .map_err(|_| Error::FileError)?;
+
+        Ok(usize::from_be_bytes(root_id_bytes))
+    }
+    pub fn build(self) -> Result<BPlusTree, Error> {
+        if (self.path == "") || (self.t > DEFAULT_T || self.t <= 0) || (self.name == "") {
             return Err(Error::InvalidArguments);
         }
 
@@ -60,19 +82,30 @@ impl BTreeBuilder {
             })?;
 
         let mut pager = Pager::new(nodes_file, values_file, DEFAULT_CACHE_SIZE);
-        let root = pager.new_node()?;
-        pager.write_node(&root)?;
 
-        Ok(BPlusTree {
+        let root_page_id = if let Ok(root_id) = self.read_root_id_from_file() {
+            root_id
+        } else {
+            let root = pager.new_node()?;
+            pager.write_node(&root)?;
+            root.page_id
+
+        };
+
+        let ret = Ok(BPlusTree {
             pager,
             t: self.t,
-            root_page_id: root.page_id,
-        })
+            root_page_id,
+            name: self.name,
+        });
+        ret.as_ref().unwrap().save_info_on_file()?;
+        ret
     }
 }
 
 #[derive(Debug)]
 pub struct BPlusTree {
+    name: String,
     t: usize,
     pager: Pager,
     root_page_id: usize,
@@ -92,22 +125,44 @@ impl BPlusTree {
         result.push_str(&node.tree_to_string(&self.pager).unwrap());
         result
     }
+    fn save_info_on_file(&self) -> Result<(), Error> {
+        let path = format!("{}{}", self.name, FILE_ENDING);
+        
+
+        let mut open_options = OpenOptions::new();
+        let mut file = open_options
+            .create(true)
+            .write(true)
+            .open(&path)
+            .map_err(|e| {
+                println!("{}", e);
+                Error::FileError
+            })?;
+
+        file.seek(std::io::SeekFrom::Start(0)).map_err(|e| {
+            println!("{}", e);
+            Error::FileError
+        })?;
+
+        file.write_all(&self.root_page_id.to_be_bytes())
+            .map_err(|e| {
+                println!("{}", e);
+                Error::FileError
+            })
+    }
     fn update_internal(
         key: String,
         pager: &mut Pager,
         node_page_id: usize,
-        value: String,
-    ) -> InternalResult<Option<String>> {
+        value: &[u8],
+    ) -> InternalResult<Option<Vec<u8>>> {
         let mut node = pager.read_node(node_page_id)?;
         match node.is_leaf {
             true => {
                 if let Some(value_location) = node.get(key.clone()) {
                     let old_value = pager.read_value(*value_location)?;
-                    let old_value = String::from_utf8(old_value)
-                        .map_err(map_err(Error::CantReadNode(node_page_id)))?;
-
                     pager.delete_value(*value_location)?;
-                    let new_value_location = pager.new_value(value.as_bytes())?;
+                    let new_value_location = pager.new_value(value)?;
 
                     node.update(key, new_value_location);
                     pager.write_node(&node)?;
@@ -125,21 +180,21 @@ impl BPlusTree {
             }
         }
     }
-    pub fn update(&mut self,key: String,value: String) ->InternalResult<Option<String>> {
+    pub fn update(&mut self, key: String, value: &[u8]) -> InternalResult<Option<Vec<u8>>> {
         Self::update_internal(key, &mut self.pager, self.root_page_id, value)
     }
 
     fn insert_internal(
         pager: &mut Pager,
         key: String,
-        value: String,
+        value: &[u8],
         t: usize,
         node_page_id: usize,
     ) -> InternalResult<bool> {
         let mut node = pager.read_node(node_page_id)?;
         match node.is_leaf {
             true => {
-                let value = pager.new_value(value.as_bytes())?;
+                let value = pager.new_value(value)?;
                 node.insert(key, value);
                 return Ok(if node.keys.len() > (2 * t - 1) {
                     node.split(pager, t)?;
@@ -165,10 +220,11 @@ impl BPlusTree {
             }
         }
     }
-    pub fn insert(&mut self, key: String, value: String) -> InternalResult<()> {
+    pub fn insert(&mut self, key: String, value: &[u8]) -> InternalResult<()> {
         if Self::insert_internal(&mut self.pager, key, value, self.t, self.root_page_id)? {
             let root = self.pager.read_node(self.root_page_id)?;
             self.root_page_id = root.parent_page_id;
+            self.save_info_on_file()?;
         }
         Ok(())
     }
@@ -176,14 +232,12 @@ impl BPlusTree {
         key: String,
         pager: &Pager,
         node_page_id: usize,
-    ) -> InternalResult<Option<String>> {
+    ) -> InternalResult<Option<Vec<u8>>> {
         let node = pager.read_node(node_page_id)?;
         match node.is_leaf {
             true => {
                 if let Some(value_location) = node.get(key) {
                     let value = pager.read_value(*value_location)?;
-                    let value = String::from_utf8(value)
-                        .map_err(map_err(Error::CantReadNode(node_page_id)))?;
                     return Ok(Some(value));
                 } else {
                     return Ok(None);
@@ -197,7 +251,7 @@ impl BPlusTree {
             }
         }
     }
-    pub fn search(&self, key: String) -> InternalResult<Option<String>> {
+    pub fn search(&self, key: String) -> InternalResult<Option<Vec<u8>>> {
         Self::search_internal(key, &self.pager, self.root_page_id)
     }
 
@@ -208,7 +262,7 @@ impl BPlusTree {
         match node.is_leaf {
             true => {
                 if let Some(value_location) = node.get(key) {
-                    pager.delete_value(node.values[i])?;
+                    pager.delete_value(*value_location)?;
 
                     node.keys.remove(i);
                     node.values.remove(i);
@@ -286,7 +340,7 @@ mod tests {
             let key = format!("key_{}", i);
             let value = format!("value_{}", i);
             let err_msg = format!("error when inserting i:{}", i);
-            tree.insert(key, value).expect(&err_msg);
+            tree.insert(key, value.as_bytes()).expect(&err_msg);
             tree.print();
             gen_logger
                 .info(tree.to_string())
@@ -302,7 +356,7 @@ mod tests {
             let err_msg = format!("error when serching for i:{}", i);
 
             let res = tree.search(key).expect(&err_msg);
-            assert_eq!(res, Some(value), "{}", err_msg)
+            assert_eq!(res, Some(value.as_bytes().to_vec()), "{}", err_msg);
         });
 
         cleanup_temp_files();
@@ -312,7 +366,12 @@ mod tests {
     #[test]
     fn test_delete() {
         let path = "temp".to_string();
-        let mut tree = BTreeBuilder::new().path(path.clone()).t(2).build().unwrap();
+        let mut tree = BTreeBuilder::new()
+            .path(path.clone())
+            .name(&path)
+            .t(2)
+            .build()
+            .unwrap();
 
         let range = 20;
         (1..=range).for_each(|i| {
@@ -320,7 +379,7 @@ mod tests {
             let key=format!("key_{}",i);
             let value=format!("value_{}",i);
             let err_msg=format!("error when inserting i:{}",i);
-            tree.insert(key, value).expect(&err_msg);
+            tree.insert(key, value.as_bytes()).expect(&err_msg);
             tree.print();
             println!("_____________________________________________________________________________________________");
         });
@@ -330,7 +389,7 @@ mod tests {
             let value = format!("value_{}", i);
             let err_msg = format!("error when serching for i:{}", i);
             let res = tree.search(key).expect(&err_msg);
-            assert_eq!(res, Some(value))
+            assert_eq!(res, Some(value.as_bytes().to_vec()), "{}", err_msg);
         });
         // Delete a key
         tree.delete("key2".to_string()).unwrap();
@@ -344,7 +403,12 @@ mod tests {
     #[test]
     fn test_update() {
         let path = "temp".to_string();
-        let mut tree = BTreeBuilder::new().path(path.clone()).t(2).build().unwrap();
+        let mut tree = BTreeBuilder::new()
+            .path(path.clone())
+            .t(2)
+            .name(&path)
+            .build()
+            .unwrap();
 
         let range = 100;
         (1..=range).for_each(|i| {
@@ -352,7 +416,7 @@ mod tests {
             let key=format!("key_{}",i);
             let value=format!("value_{}",i);
             let err_msg=format!("error when inserting i:{}",i);
-            tree.insert(key, value).expect(&err_msg);
+            tree.insert(key, value.as_bytes()).expect(&err_msg);
             tree.print();
             println!("_____________________________________________________________________________________________");
         });
@@ -360,22 +424,23 @@ mod tests {
         (1..=range).for_each(|i| {
             let key = format!("key_{}", i);
             let value = format!("value_{}", i);
-            let err_msg = format!("error when serching for i:{}", i);
+            let err_msg = format!("error when searching for i:{}", i);
             let res = tree.search(key).expect(&err_msg);
-            assert_eq!(res, Some(value))
+            assert_eq!(res, Some(value.as_bytes().to_vec()), "{}", err_msg);
         });
 
         (1..=range).for_each(|i| {
             let key = format!("key_{}", i);
             let old_value = format!("value_{}", i);
-            let new_value = format!("value_{}", i+2);
+            let new_value = format!("value_{}", i + 2);
             let err_msg = format!("error when updating i:{}", i);
-            let res = tree.update(key.clone(),new_value.clone()).expect(&err_msg);
-            assert_eq!(res, Some(old_value));
-            let res=tree.search(key).expect(&err_msg);
-            assert_eq!(res,Some(new_value));
+            let res = tree
+                .update(key.clone(), new_value.as_bytes())
+                .expect(&err_msg);
+            assert_eq!(res, Some(old_value.as_bytes().to_vec()));
+            let res = tree.search(key).expect(&err_msg);
+            assert_eq!(res, Some(new_value.as_bytes().to_vec()), "{}", err_msg);
         });
-        
     }
     #[test]
     fn test_default_t_tree_just_insert_and_search() {
@@ -392,7 +457,7 @@ mod tests {
             let value=format!("value_{}",i);
             let err_msg=format!("error when inserting i:{}",i);
 
-            tree.insert(key, value).expect(&err_msg);
+            tree.insert(key, value.as_bytes()).expect(&err_msg);
             println!("_____________________________________________________________________________________________");
         });
         println!("completed inserting");
@@ -402,7 +467,7 @@ mod tests {
             let err_msg = format!("error when serching for i:{}", i);
             println!("searching {}", key.clone());
             let res = tree.search(key).expect(&err_msg);
-            assert_eq!(res, Some(value), "{}", err_msg);
+            assert_eq!(res, Some(value.as_bytes().to_vec()), "{}", err_msg);
         });
 
         cleanup_temp_files();

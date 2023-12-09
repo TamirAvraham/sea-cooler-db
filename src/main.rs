@@ -12,6 +12,7 @@ mod json;
 mod validation_json;
 mod logger;
 mod overwatch;
+mod key_value_store;
 fn main() {
     println!("Hello, world!");
 }

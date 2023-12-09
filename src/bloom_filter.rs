@@ -1,27 +1,27 @@
 use std::collections::hash_map::DefaultHasher;
 use std::f64::consts::LN_2;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 
 const N: f64 = 4.0 * 1024.0 * 1024.0;
 const FPR: f64 = 0.02;
 const FPR_LN:f64=-3.9120230054;//ln.98
-const  M:f64 = -(N * FPR_LN) / (LN_2 * LN_2);
+pub const  M:f64 = -(N * FPR_LN) / (LN_2 * LN_2);
 const  K:f64=(M/ N) * LN_2;
 
 pub struct BloomFilter {
-
-    bit_array: [bool; M as usize],
+    pub bit_array: Vec<bool>,
 }
 
 impl BloomFilter {
-    fn new() -> BloomFilter {
+    pub fn new() -> BloomFilter {
         BloomFilter {
-            bit_array: [false; M as usize],
+            bit_array: vec![false; M as usize],
         }
     }
 
-    fn insert(&mut self,element:&str){
+    pub fn insert(&mut self,element:&str){
         (0..(K as usize)).for_each(|i|{
             let mut hasher = DefaultHasher::new();
             element.hash(&mut hasher);
@@ -29,12 +29,15 @@ impl BloomFilter {
         })
     }
 
-    fn contains(&self,element:&str)->bool{
+    pub fn contains(&self,element:&str)->bool{
         (0..(K as usize)).all(|i|{
             let mut hasher = DefaultHasher::new();
             element.hash(&mut hasher);
             self.bit_array[(hasher.finish()%((M as u64)+i as u64)) as usize]
         })
+    }
+    pub fn get_array(&self)->&Vec<bool>{
+        &self.bit_array
     }
 }
 #[cfg(test)]

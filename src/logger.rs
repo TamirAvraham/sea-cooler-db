@@ -1,10 +1,9 @@
 use std::{
-    cell::Cell,
     fs::{self, File, OpenOptions},
     io::{self, stdout, Read, Seek, Write},
     mem::size_of,
     path::Path,
-    sync::{Mutex, RwLock, RwLockWriteGuard},
+    sync::{RwLock, RwLockWriteGuard},
 };
 
 use crate::{
@@ -23,13 +22,13 @@ const TRY_COUNTER_OFFSET: usize = COMPLETED_OFFSET + TRY_COUNTER_SIZE;
 const PARAM_LEN_SIZE: usize = SIZE_OF_USIZE;
 const FAIL_LOG_PATH: &str = "fail log.flog";
 
-const RESTORER_DIR: &str = "backup";
-const RESTORER_SETTINGS_FILE_ENDING: &str = ".restorer.config";
+pub const RESTORER_DIR: &str = "backup";
+pub const RESTORER_SETTINGS_FILE_ENDING: &str = ".restorer.config";
 const RESTORER_RECOMMENDED_DIFF: usize = 30;
 const MAX_TRY_COUNTER: usize = 5;
 
-const LOGGER_CONFIG_FILENAME: &str = "logger.config";
-const OPERATION_LOGGER_FILE_ENDING: &str = ".oplogger";
+pub const LOGGER_CONFIG_FILENAME: &str = "logger.config";
+pub const OPERATION_LOGGER_FILE_ENDING: &str = ".oplogger";
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum LoggerError {
     //OP logger
@@ -134,14 +133,14 @@ where
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub enum OperationType {
-    Insert(String, String),
+    Insert(String, Vec<u8>),
     Select(String),
     Delete(String),
-    Update(String, String),
+    Update(String, Vec<u8>),
 }
 
 #[derive(Debug)]
-struct OperationLog {
+pub struct OperationLog {
     completed: bool,
     id: usize,
     start_location: usize,
@@ -167,10 +166,10 @@ impl OperationType {
 impl ToString for OperationType {
     fn to_string(&self) -> String {
         match self {
-            OperationType::Insert(k, v) => format!("Insert {}:{}", k, v),
+            OperationType::Insert(k, v) => format!("Insert {}:{:?}", k, v),
             OperationType::Select(k) => format!("Select {}", k),
             OperationType::Delete(k) => format!("Delete {}", k),
-            OperationType::Update(k, v) => format!("Update {}:{}", k, v),
+            OperationType::Update(k, v) => format!("Update {}:{:?}", k, v),
         }
     }
 }
@@ -198,7 +197,7 @@ impl OperationLogger {
             &op_type.to_string(),
         )
     }
-    fn get_string_from_file(file: &mut RwLockWriteGuard<'_, File>) -> Result<String, LoggerError> {
+    fn get_vec_u8_from_file(file: &mut RwLockWriteGuard<'_, File>) -> Result<Vec<u8>, LoggerError> {
         let mut size_bytes = [0u8; SIZE_OF_USIZE];
         file.read_exact(&mut size_bytes)
             .map_err(|_| LoggerError::CantReadParam)?;
@@ -207,8 +206,20 @@ impl OperationLogger {
 
         file.read_exact(&mut data)
             .map_err(|_| LoggerError::CantReadParam)?;
-
-        String::from_utf8(data).map_err(|_| LoggerError::CantReadParam)
+        Ok(data)
+    }
+    fn get_string_from_file(file: &mut RwLockWriteGuard<'_, File>) -> Result<String, LoggerError> {
+        String::from_utf8(Self::get_vec_u8_from_file(file)?).map_err(|_| LoggerError::CantReadParam)
+    }
+    fn write_bytes_to_file(
+        file: &mut RwLockWriteGuard<'_, File>,
+        bytes: &Vec<u8>,
+    ) -> Result<(), LoggerError> {
+        file.write_all(&bytes.len().to_be_bytes())
+            .map_err(|_| LoggerError::CantWriteParam)?;
+        file.write_all(bytes)
+            .map_err(|_| LoggerError::CantWriteParam)?;
+        Ok(())
     }
     fn write_string_to_file(
         file: &mut RwLockWriteGuard<'_, File>,
@@ -227,13 +238,13 @@ impl OperationLogger {
         match op_type_byte {
             0x01 => Ok(OperationType::Insert(
                 Self::get_string_from_file(file)?,
-                Self::get_string_from_file(file)?,
+                Self::get_vec_u8_from_file(file)?,
             )),
             0x02 => Ok(OperationType::Select(Self::get_string_from_file(file)?)),
             0x03 => Ok(OperationType::Delete(Self::get_string_from_file(file)?)),
             0x04 => Ok(OperationType::Update(
                 Self::get_string_from_file(file)?,
-                Self::get_string_from_file(file)?,
+                Self::get_vec_u8_from_file(file)?,
             )),
             _ => Err(LoggerError::InvalidOperationCode(op_type_byte)),
         }
@@ -300,11 +311,11 @@ impl OperationLogger {
             OperationType::Delete(key) => Self::write_string_to_file(file, key),
             OperationType::Insert(key, value) => {
                 Self::write_string_to_file(file, key)?;
-                Self::write_string_to_file(file, value)
+                Self::write_bytes_to_file(file, value)
             }
             OperationType::Update(key, value) => {
                 Self::write_string_to_file(file, key)?;
-                Self::write_string_to_file(file, value)
+                Self::write_bytes_to_file(file, value)
             }
         }
     }
@@ -501,11 +512,18 @@ impl Restorer {
 
         fs::write(
             &config_path,
-            new_last_completed_log.id
+            new_last_completed_log
+                .id
                 .to_be_bytes()
                 .iter()
                 .cloned()
-                .chain(new_last_completed_log.start_location.to_be_bytes().iter().cloned())
+                .chain(
+                    new_last_completed_log
+                        .start_location
+                        .to_be_bytes()
+                        .iter()
+                        .cloned(),
+                )
                 .collect::<Vec<u8>>(),
         )
         .map_err(|_| LoggerError::CantUpdateLog)?;
@@ -521,8 +539,8 @@ impl Restorer {
         )
         .map_err(|_| LoggerError::CantUpdateLog)?;
 
-        self.last_op_id=new_last_completed_log.id;
-        self.last_op_start=new_last_completed_log.start_location;
+        self.last_op_id = new_last_completed_log.id;
+        self.last_op_start = new_last_completed_log.start_location;
 
         Ok(())
     }
@@ -535,7 +553,10 @@ impl Restorer {
     pub fn get_last_backed_operation_start(&self) -> usize {
         self.last_op_start
     }
-    pub fn get_un_completed_operations(&self, op_logger: &mut OperationLogger) -> Vec<OperationLog> {
+    pub fn get_un_completed_operations(
+        &self,
+        op_logger: &mut OperationLogger,
+    ) -> Vec<OperationLog> {
         op_logger
             .get_all_logs_from_start(&self.last_op_start)
             .into_iter()
@@ -597,8 +618,12 @@ impl Logger {
         }
         Ok(op)
     }
-    pub fn mark_operation_as_completed(&mut self,operation:&OperationLog)->Result<(),LoggerError>{
-        self.op_logger.mark_log_as_completed(&operation.start_location)
+    pub fn mark_operation_as_completed(
+        &mut self,
+        operation: &OperationLog,
+    ) -> Result<(), LoggerError> {
+        self.op_logger
+            .mark_log_as_completed(&operation.start_location)
     }
     pub fn log_select_operation(&mut self, key: &String) -> Result<OperationLog, LoggerError> {
         self.log_operation(OperationType::Select(key.clone()))
@@ -609,14 +634,14 @@ impl Logger {
     pub fn log_insert_operation(
         &mut self,
         key: &String,
-        value: &String,
+        value: &Vec<u8>,
     ) -> Result<OperationLog, LoggerError> {
         self.log_operation(OperationType::Insert(key.clone(), value.clone()))
     }
     pub fn log_update_operation(
         &mut self,
         key: &String,
-        value: &String,
+        value: &Vec<u8>,
     ) -> Result<OperationLog, LoggerError> {
         self.log_operation(OperationType::Update(key.clone(), value.clone()))
     }
@@ -651,7 +676,7 @@ impl Logger {
                 ));
             match op.op_type {
                 OperationType::Insert(key, value) => {
-                    tree.insert(key, value)
+                    tree.insert(key, &value)
                         .expect(&format!("cant redo operation with id:{}", op.id));
                 }
                 OperationType::Select(key) => {
@@ -662,7 +687,7 @@ impl Logger {
                     tree.delete(key)
                         .expect(&format!("cant redo operation with id:{}", op.id));
                 }
-                OperationType::Update(_, _) => todo!(),
+                OperationType::Update(key, new_value) => {tree.update(key, &new_value).expect(&format!("cant redo operation with id:{}", op.id));},
             }
         }
     }
@@ -842,7 +867,7 @@ mod tests {
         let log = logger
             .log_operation(OperationType::Insert(
                 "key".to_string(),
-                "value".to_string(),
+                "value".to_string().as_bytes().to_vec(),
             ))
             .unwrap();
 
@@ -871,7 +896,7 @@ mod tests {
         let log = logger
             .log_operation(OperationType::Insert(
                 "key".to_string(),
-                "value".to_string(),
+                "value".to_string().as_bytes().to_vec(),
             ))
             .unwrap();
 
@@ -904,7 +929,7 @@ mod tests {
         let log = logger
             .log_operation(OperationType::Insert(
                 "key".to_string(),
-                "value".to_string(),
+                "value".to_string().as_bytes().to_vec(),
             ))
             .unwrap();
 
@@ -1034,7 +1059,7 @@ mod tests {
             .expect("Failed to create test log file");
         let mut logger = OperationLogger::new(log_file, 1);
 
-        let op_type = OperationType::Insert("key".to_string(), "value".to_string());
+        let op_type = OperationType::Insert("key".to_string(), "value".to_string().as_bytes().to_vec());
         let result = logger.log_operation(op_type.clone());
 
         assert!(result.is_ok());
@@ -1060,7 +1085,7 @@ mod tests {
         let log = logger
             .log_operation(OperationType::Insert(
                 "key".to_string(),
-                "value".to_string(),
+                "value".to_string().as_bytes().to_vec(),
             ))
             .expect("Failed to log operation");
         eprintln!("log.start_location = {:#?}", log.start_location);
@@ -1085,7 +1110,7 @@ mod tests {
             .expect("Failed to create test log file");
         let mut logger = OperationLogger::new(log_file, 1);
 
-        let op_type = OperationType::Insert("key".to_string(), "value".to_string());
+        let op_type = OperationType::Insert("key".to_string(), "value".to_string().as_bytes().to_vec());
         let log = logger
             .log_operation(op_type.clone())
             .expect("Failed to log operation");
@@ -1111,7 +1136,7 @@ mod tests {
             .expect("Failed to create test log file");
         let mut logger = OperationLogger::new(log_file, 1);
 
-        let op_type = OperationType::Insert("key".to_string(), "value".to_string());
+        let op_type = OperationType::Insert("key".to_string(), "value".to_string().as_bytes().to_vec());
         let log = logger
             .log_operation(op_type.clone())
             .expect("Failed to log operation");
@@ -1137,12 +1162,14 @@ mod tests {
             .expect("Failed to create test log file");
         let mut logger = OperationLogger::new(log_file, 1);
 
-        let op_type = OperationType::Insert("key".to_string(), "value".to_string());
+        let op_type = OperationType::Insert("key".to_string(), "value".to_string().as_bytes().to_vec());
         let log1 = logger
             .log_operation(op_type.clone())
             .expect("Failed to log operation");
-        logger.mark_log_as_completed(&log1.start_location).expect("cnat mark log 1 as completed");
-        let op_type = OperationType::Update("key".to_string(), "new_value".to_string());
+        logger
+            .mark_log_as_completed(&log1.start_location)
+            .expect("cnat mark log 1 as completed");
+        let op_type = OperationType::Update("key".to_string(), "new_value".to_string().as_bytes().to_vec());
         let _log2 = logger
             .log_operation(op_type.clone())
             .expect("Failed to log operation");
@@ -1154,7 +1181,7 @@ mod tests {
 
         assert_eq!(
             log.op_type,
-            OperationType::Insert("key".to_string(), "value".to_string())
+            OperationType::Insert("key".to_string(), "value".to_string().as_bytes().to_vec())
         );
 
         // Clean up: Remove the created file
@@ -1171,12 +1198,12 @@ mod tests {
             .expect("Failed to create test log file");
         let mut logger = OperationLogger::new(log_file, 1);
 
-        let op_type = OperationType::Insert("key".to_string(), "value".to_string());
+        let op_type = OperationType::Insert("key".to_string(), "value".to_string().as_bytes().to_vec());
         let _log1 = logger
             .log_operation(op_type.clone())
             .expect("Failed to log operation");
 
-        let op_type = OperationType::Update("key".to_string(), "new_value".to_string());
+        let op_type = OperationType::Update("key".to_string(), "new_value".to_string().as_bytes().to_vec());
         let log2 = logger
             .log_operation(op_type.clone())
             .expect("Failed to log operation");
@@ -1199,12 +1226,12 @@ mod tests {
             .expect("Failed to create test log file");
         let mut logger = OperationLogger::new(log_file, 1);
 
-        let op_type = OperationType::Insert("key".to_string(), "value".to_string());
+        let op_type = OperationType::Insert("key".to_string(), "value".to_string().as_bytes().to_vec());
         let _log1 = logger
             .log_operation(op_type.clone())
             .expect("Failed to log operation");
 
-        let op_type = OperationType::Update("key".to_string(), "new_value".to_string());
+        let op_type = OperationType::Update("key".to_string(), "new_value".to_string().as_bytes().to_vec());
         let _log2 = logger
             .log_operation(op_type.clone())
             .expect("Failed to log operation");
@@ -1241,7 +1268,8 @@ mod tests {
         assert_eq!(restorer.last_op_start, 0);
 
         // Clean up: Remove the created directory
-        fs::remove_dir_all(&Restorer::get_restorer_path(&restorer.name)).expect("Failed to remove test restorer directory");
+        fs::remove_dir_all(&Restorer::get_restorer_path(&restorer.name))
+            .expect("Failed to remove test restorer directory");
     }
 
     #[test]
@@ -1250,7 +1278,7 @@ mod tests {
         let restorer_dir = format!("{}\\{}", TEST_RESTORER_DIR, restorer_name);
 
         // Create a test directory with dummy files
-        
+
         fs::write(
             &format!("{}{}{}", restorer_name, VALUES_FILE_ENDING, FILE_ENDING),
             b"",
@@ -1261,25 +1289,27 @@ mod tests {
             b"",
         )
         .expect("Failed to create test nodes file");
-        
 
         let mut restorer =
             Restorer::load(restorer_name.to_string()).expect("Failed to load restorer");
 
-        let log_file = OpenOptions::new().read(true)
+        let log_file = OpenOptions::new()
+            .read(true)
             .write(true)
             .create(true)
             .open(TEST_OP_LOGGER_FILE_PATH)
             .expect("Failed to create test log file");
         let mut op_logger = OperationLogger::new(log_file, 1);
 
-        let op_type = OperationType::Insert("key".to_string(), "value".to_string());
+        let op_type = OperationType::Insert("key".to_string(), "value".to_string().as_bytes().to_vec());
 
         let log = op_logger
             .log_operation(op_type.clone())
             .expect("Failed to log operation");
 
-        op_logger.mark_log_as_completed(&log.start_location).expect("cant mark log as complete");
+        op_logger
+            .mark_log_as_completed(&log.start_location)
+            .expect("cant mark log as complete");
 
         restorer
             .update(&op_logger)
@@ -1289,11 +1319,18 @@ mod tests {
 
         // Clean up: Remove the created files and directory
         fs::remove_file(TEST_OP_LOGGER_FILE_PATH).expect("Failed to remove test log file");
-        fs::remove_dir_all(Restorer::get_restorer_path(&restorer.name)).expect("Failed to remove test restorer directory");
-        fs::remove_file(&format!("{}{}{}", restorer_name, VALUES_FILE_ENDING, FILE_ENDING)).expect("cant remove values");
-        fs::remove_file(&format!("{}{}{}", restorer_name, NODES_FILE_ENDING, FILE_ENDING)).expect("cant remove nodes");
-
-
+        fs::remove_dir_all(Restorer::get_restorer_path(&restorer.name))
+            .expect("Failed to remove test restorer directory");
+        fs::remove_file(&format!(
+            "{}{}{}",
+            restorer_name, VALUES_FILE_ENDING, FILE_ENDING
+        ))
+        .expect("cant remove values");
+        fs::remove_file(&format!(
+            "{}{}{}",
+            restorer_name, NODES_FILE_ENDING, FILE_ENDING
+        ))
+        .expect("cant remove nodes");
     }
 
     #[test]
@@ -1320,9 +1357,18 @@ mod tests {
         assert!(should_update);
 
         // Clean up: Remove the created directory
-        fs::remove_dir_all(Restorer::get_restorer_path(&restorer.name)).expect("Failed to remove test restorer directory");
-        fs::remove_file(&format!("{}{}{}", restorer_name, VALUES_FILE_ENDING, FILE_ENDING)).expect("cant remove values");
-        fs::remove_file(&format!("{}{}{}", restorer_name, NODES_FILE_ENDING, FILE_ENDING)).expect("cant remove nodes");
+        fs::remove_dir_all(Restorer::get_restorer_path(&restorer.name))
+            .expect("Failed to remove test restorer directory");
+        fs::remove_file(&format!(
+            "{}{}{}",
+            restorer_name, VALUES_FILE_ENDING, FILE_ENDING
+        ))
+        .expect("cant remove values");
+        fs::remove_file(&format!(
+            "{}{}{}",
+            restorer_name, NODES_FILE_ENDING, FILE_ENDING
+        ))
+        .expect("cant remove nodes");
     }
 
     #[test]
@@ -1342,15 +1388,25 @@ mod tests {
         )
         .expect("Failed to create test nodes file");
 
-        let mut restorer = Restorer::load(restorer_name.to_string()).expect("Failed to load restorer");
+        let mut restorer =
+            Restorer::load(restorer_name.to_string()).expect("Failed to load restorer");
         let last_backed_id = restorer.get_last_backed_operation_id();
 
         assert_eq!(last_backed_id, 0);
 
         // Clean up: Remove the created directory
-        fs::remove_dir_all(Restorer::get_restorer_path(&restorer.name)).expect("Failed to remove test restorer directory");
-        fs::remove_file(&format!("{}{}{}", restorer_name, VALUES_FILE_ENDING, FILE_ENDING)).expect("cant remove values");
-        fs::remove_file(&format!("{}{}{}", restorer_name, NODES_FILE_ENDING, FILE_ENDING)).expect("cant remove nodes");
+        fs::remove_dir_all(Restorer::get_restorer_path(&restorer.name))
+            .expect("Failed to remove test restorer directory");
+        fs::remove_file(&format!(
+            "{}{}{}",
+            restorer_name, VALUES_FILE_ENDING, FILE_ENDING
+        ))
+        .expect("cant remove values");
+        fs::remove_file(&format!(
+            "{}{}{}",
+            restorer_name, NODES_FILE_ENDING, FILE_ENDING
+        ))
+        .expect("cant remove nodes");
     }
 
     #[test]
@@ -1369,7 +1425,6 @@ mod tests {
             b"",
         )
         .expect("Failed to create test nodes file");
-        
 
         let restorer = Restorer::load(restorer_name.to_string()).expect("Failed to load restorer");
 
@@ -1378,9 +1433,18 @@ mod tests {
         assert_eq!(last_backed_start, 0);
 
         // Clean up: Remove the created directory
-        fs::remove_dir_all(Restorer::get_restorer_path(&restorer.name)).expect("Failed to remove test restorer directory");
-        fs::remove_file(&format!("{}{}{}", restorer_name, VALUES_FILE_ENDING, FILE_ENDING)).expect("cant remove values");
-        fs::remove_file(&format!("{}{}{}", restorer_name, NODES_FILE_ENDING, FILE_ENDING)).expect("cant remove nodes");
+        fs::remove_dir_all(Restorer::get_restorer_path(&restorer.name))
+            .expect("Failed to remove test restorer directory");
+        fs::remove_file(&format!(
+            "{}{}{}",
+            restorer_name, VALUES_FILE_ENDING, FILE_ENDING
+        ))
+        .expect("cant remove values");
+        fs::remove_file(&format!(
+            "{}{}{}",
+            restorer_name, NODES_FILE_ENDING, FILE_ENDING
+        ))
+        .expect("cant remove nodes");
     }
 
     #[test]
@@ -1399,36 +1463,67 @@ mod tests {
         )
         .expect("Failed to create test nodes file");
 
-        let restorer =
-            Restorer::load(restorer_name.to_string()).expect("Failed to load restorer");
+        let restorer = Restorer::load(restorer_name.to_string()).expect("Failed to load restorer");
 
-        let log_file = OpenOptions::new().read(true)
+        let log_file = OpenOptions::new()
+            .read(true)
             .write(true)
             .create(true)
             .open(TEST_OP_LOGGER_FILE_PATH)
             .expect("Failed to create test log file");
         let mut op_logger = OperationLogger::new(log_file, 1);
 
-        let log = op_logger.log_operation(OperationType::Insert("hello".to_string(), "world".to_string())).expect("cant log op");
-        op_logger.mark_log_as_completed(&log.start_location).expect("cant mark first op as complete");
-        let _log = op_logger.log_operation(OperationType::Insert("bye".to_string(), "yosef".to_string())).expect("cant log op");
-        let log = op_logger.log_operation(OperationType::Insert("bongo".to_string(), "mongo".to_string())).expect("cant log op");
+        let log = op_logger
+            .log_operation(OperationType::Insert(
+                "hello".to_string(),
+                "world".to_string().as_bytes().to_vec(),
+            ))
+            .expect("cant log op");
+        op_logger
+            .mark_log_as_completed(&log.start_location)
+            .expect("cant mark first op as complete");
+        let _log = op_logger
+            .log_operation(OperationType::Insert(
+                "bye".to_string(),
+                "yosef".to_string().as_bytes().to_vec(),
+            ))
+            .expect("cant log op");
+        let log = op_logger
+            .log_operation(OperationType::Insert(
+                "bongo".to_string(),
+                "mongo".to_string().as_bytes().to_vec(),
+            ))
+            .expect("cant log op");
 
-
-
-        (0..=MAX_TRY_COUNTER+1).for_each(|_| {let log=op_logger.read_log(&log.start_location).expect("cant re read log");op_logger.increment_log_try_counter(&log).expect("cant inc op try counter");});
-        let log=op_logger.read_log(&log.start_location).expect("cant re read log");
-
-        
+        (0..=MAX_TRY_COUNTER + 1).for_each(|_| {
+            let log = op_logger
+                .read_log(&log.start_location)
+                .expect("cant re read log");
+            op_logger
+                .increment_log_try_counter(&log)
+                .expect("cant inc op try counter");
+        });
+        let log = op_logger
+            .read_log(&log.start_location)
+            .expect("cant re read log");
 
         let problematic_ops = restorer.get_un_completed_operations(&mut op_logger);
         assert_eq!(problematic_ops.len(), 1);
 
         // Clean up: Remove the created files and directory
         fs::remove_file(TEST_OP_LOGGER_FILE_PATH).expect("Failed to remove test log file");
-        fs::remove_dir_all(Restorer::get_restorer_path(&restorer.name)).expect("Failed to remove test restorer directory");
-        fs::remove_file(&format!("{}{}{}", restorer_name, VALUES_FILE_ENDING, FILE_ENDING)).expect("cant remove values");
-        fs::remove_file(&format!("{}{}{}", restorer_name, NODES_FILE_ENDING, FILE_ENDING)).expect("cant remove nodes");
+        fs::remove_dir_all(Restorer::get_restorer_path(&restorer.name))
+            .expect("Failed to remove test restorer directory");
+        fs::remove_file(&format!(
+            "{}{}{}",
+            restorer_name, VALUES_FILE_ENDING, FILE_ENDING
+        ))
+        .expect("cant remove values");
+        fs::remove_file(&format!(
+            "{}{}{}",
+            restorer_name, NODES_FILE_ENDING, FILE_ENDING
+        ))
+        .expect("cant remove nodes");
     }
     #[test]
     fn test_logger_new() {
@@ -1443,9 +1538,18 @@ mod tests {
         fs::write(
             &format!("{}{}{}", logger_name, NODES_FILE_ENDING, FILE_ENDING),
             b"",
-        ).expect("Failed to create test nodes file");
+        )
+        .expect("Failed to create test nodes file");
         let _logger = Logger::new(&logger_name).expect("cant create new logger");
-        fs::remove_file(&format!("{}{}{}", logger_name, VALUES_FILE_ENDING, FILE_ENDING)).expect("cant remove values");
-        fs::remove_file(&format!("{}{}{}", logger_name, NODES_FILE_ENDING, FILE_ENDING)).expect("cant remove nodes");
+        fs::remove_file(&format!(
+            "{}{}{}",
+            logger_name, VALUES_FILE_ENDING, FILE_ENDING
+        ))
+        .expect("cant remove values");
+        fs::remove_file(&format!(
+            "{}{}{}",
+            logger_name, NODES_FILE_ENDING, FILE_ENDING
+        ))
+        .expect("cant remove nodes");
     }
 }

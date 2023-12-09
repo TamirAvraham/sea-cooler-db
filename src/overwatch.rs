@@ -3,12 +3,12 @@ use std::collections::HashMap;
 
 
 
-struct Overwatch<'a,T> {
-    update_map:HashMap<String,Box<dyn FnMut(T)->()+'a+Send>>,
-    delete_map:HashMap<String,Box<dyn FnMut(T)->()+'a+Send>>,
+pub struct Overwatch<T> {
+    update_map:HashMap<String,Box<dyn FnMut(T)->()+'static+Send>>,
+    delete_map:HashMap<String,Box<dyn FnMut(T)->()+'static+Send>>,
 }
 
-impl<'a,T> Overwatch<'a,T> {
+impl<'a,T> Overwatch<T> where 'a:'static {
     pub fn insert_update<F>(&mut self,key:&String,f:F) where F:FnMut(T)->()+'a+Send{
         self.update_map.insert(key.clone(), Box::new(f));
     }
@@ -20,10 +20,16 @@ impl<'a,T> Overwatch<'a,T> {
             (f)(new_value);
         }
     }
-    pub fn get_delete(&mut self,key:&String,new_value:T){
+    pub fn get_delete(&mut self,key:&String,last_value:T){
         if let Some(f) = self.delete_map.get_mut(key) {
-            (f)(new_value);
+            (f)(last_value);
         }
+    }
+    pub fn remove_update(&mut self,key:&String) {
+        self.update_map.remove(key);
+    }
+    pub fn remove_delete(&mut self,key:&String) {
+        self.delete_map.remove(key);
     }
     pub fn new()->Self{
         Self{
@@ -35,6 +41,8 @@ impl<'a,T> Overwatch<'a,T> {
 
 #[cfg(test)]
 mod tests{
+    use std::sync::{Arc, Mutex};
+
     use super::*;
 
     #[test]
@@ -51,11 +59,13 @@ mod tests{
     }
     #[test]
     fn test_overwatch_value_capture() {
-        let mut i=0;
+        let original_i=Arc::new(Mutex::new(0));
+        let i=Arc::clone(&original_i);
         let key="k".to_string();
-        let f=|v| {
-            i+=1;
-            println!("v is {} and this function has been called {} times",v,i);
+        let f=move |v| {
+            let mut i=i.lock().unwrap();
+            *i+=1;
+            println!("v is: {} and this function has been called {} times",v,i);
         };
 
         let mut overwatch=Overwatch::new();
