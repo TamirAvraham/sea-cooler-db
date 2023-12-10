@@ -144,6 +144,12 @@ mod tests {
         p.execute(|| println!("do new job2"));
         p.execute(|| println!("do new job3"));
         p.execute(|| println!("do new job4"));
+
+        p.execute(|| (0..1_000).for_each(|i| println!("{}",i)));
+        p.execute(|| (0..1_000).for_each(|i| println!("{}",i)));
+        p.execute(|| (0..1_000).for_each(|i| println!("{}",i)));
+        p.execute(|| (0..1_000).for_each(|i| println!("{}",i)));
+
     }
     #[test]
     fn compute_test() {

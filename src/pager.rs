@@ -3,7 +3,7 @@ use std::{
     char::MAX,
     fs::{self, File, OpenOptions},
     io::{Read, Seek, Write},
-    mem::size_of,
+    mem::size_of, sync::RwLock,
 };
 
 use crate::{
@@ -27,7 +27,7 @@ pub const NODE_KEY_COUNT_SIZE: usize = SIZE_OF_USIZE;
 pub const NODE_KEY_COUNT_OFFSET: usize = NODE_PARENT_OFFSET + NODE_PARENT_SIZE;
 pub const HEADER_SIZE: usize = NODE_KEY_COUNT_OFFSET + NODE_KEY_COUNT_SIZE;
 
-type PagerFile = RefCell<File>;
+type PagerFile = RwLock<File>;
 #[derive(Debug)]
 pub struct Pager {
     nodes_cache: FileCache,
@@ -38,7 +38,7 @@ pub struct Pager {
 impl Pager {
     #[inline]
     fn file_to_pager_file(file: File) -> PagerFile {
-        RefCell::new(file)
+        RwLock::new(file)
     }
 
     
@@ -50,7 +50,7 @@ impl Pager {
         }
     }
     pub fn read_value(&self, location: usize) -> InternalResult<Vec<u8>> {
-        let mut file = self.values_file.borrow_mut();
+        let mut file = self.values_file.write().unwrap();
 
         file.seek(std::io::SeekFrom::Start(location as u64))
             .map_err(map_err(Error::CantWriteValue))?;
@@ -69,7 +69,7 @@ impl Pager {
         Ok(value)
     }
     pub fn new_value(&mut self, value: &[u8]) -> InternalResult<usize> {
-        let mut file = self.values_file.borrow_mut();
+        let mut file = self.values_file.write().unwrap();
 
         file.seek(std::io::SeekFrom::End(0))
             .map_err(map_err(Error::CantWriteValue))?;
@@ -87,7 +87,7 @@ impl Pager {
     }
 
     pub fn delete_value(&mut self, offset: usize) -> Result<(), Error> {
-        let mut file = self.values_file.borrow_mut();
+        let mut file = self.values_file.write().unwrap();
         let mut value_len_as_bytes = [0; SIZE_OF_USIZE];
 
         file.seek(std::io::SeekFrom::Start(offset as u64)).map_err(|_| Error::FileError)?;

@@ -6,10 +6,10 @@ use std::{
 const BLOOM_FILTER_PATH: &str = "bloom_filter.dat";
 use crate::{
     bloom_filter::{self, BloomFilter, M},
-    btree::{self, BPlusTree, DEFAULT_T, FILE_ENDING, VALUES_FILE_ENDING, NODES_FILE_ENDING},
+    btree::{self, BPlusTree, DEFAULT_T, FILE_ENDING, NODES_FILE_ENDING, VALUES_FILE_ENDING},
     encryption::EncryptionService,
     error::Error,
-    logger::{LogType, Logger, LoggerError, OPERATION_LOGGER_FILE_ENDING, RESTORER_DIR, self},
+    logger::{self, LogType, Logger, LoggerError, OPERATION_LOGGER_FILE_ENDING, RESTORER_DIR},
     node::MAX_KEY_SIZE,
     overwatch::{self, Overwatch},
     thread_pool::{ComputedValue, ThreadPool},
@@ -23,16 +23,15 @@ enum KeyValueError {
     CorruptedBloomFilter,
 }
 
-
-
 type KvResult<T> = Result<T, KeyValueError>;
 type ThreadGuard<T> = Arc<Mutex<T>>;
+type ThreadProtector<T> = Arc<RwLock<T>>;
 struct KeyValueStore {
     name: String,
     logger: ThreadGuard<Logger>,
     overwatch: ThreadGuard<Overwatch<String>>,
-    tree: ThreadGuard<BPlusTree>,
-    bloom_filter: ThreadGuard<BloomFilter>,
+    tree: ThreadProtector<BPlusTree>,
+    bloom_filter: ThreadProtector<BloomFilter>,
 }
 impl From<LoggerError> for KeyValueError {
     fn from(item: LoggerError) -> Self {
@@ -51,12 +50,15 @@ impl From<io::Error> for KeyValueError {
 }
 /*
    shit i need to impl:
-   save bloom filter on file
-   maybe save overwatch
+   add graceful crashes
    test restore on logger
    maybe start collections
 */
 impl KeyValueStore {
+    fn recover(&mut self) {
+        let mut tree = self.tree.write().unwrap();
+        self.logger.lock().unwrap().restore(&mut tree);
+    }
     fn load_bloom_filter_from_file(name: &String) -> KvResult<BloomFilter> {
         let mut bloom_filter_data = vec![0u8; M as usize];
 
@@ -77,19 +79,20 @@ impl KeyValueStore {
         Ok(BloomFilter { bit_array })
     }
     fn load(name: String) -> KvResult<Self> {
-        let tree=Arc::new(Mutex::new(
+        let tree = Arc::new(RwLock::new(
             btree::BTreeBuilder::new()
                 .name(&name)
                 .t(DEFAULT_T)
                 .path(name.clone())
                 .build()?,
         ));
+
         let ret = Ok(Self {
             name: name.clone(),
             logger: Arc::new(Mutex::new(Logger::new(&name)?)),
+            tree,
             overwatch: Arc::new(Mutex::new(Overwatch::new())),
-            tree ,
-            bloom_filter: Arc::new(Mutex::new(
+            bloom_filter: Arc::new(RwLock::new(
                 Self::load_bloom_filter_from_file(&name).or_else(
                     |_| -> Result<BloomFilter, KeyValueError> { Ok(BloomFilter::new()) },
                 )?,
@@ -106,7 +109,8 @@ impl KeyValueStore {
         ret
     }
     pub fn new(name: String) -> Self {
-        if let Ok(ret) = Self::load(name) {
+        if let Ok(mut ret) = Self::load(name) {
+            ret.recover();
             ret.save_bloom_filter_on_file().expect("cant create kv ");
             ret
         } else {
@@ -118,7 +122,7 @@ impl KeyValueStore {
 
         //critical section
         {
-            let bloom_filter = self.bloom_filter.lock().unwrap();
+            let bloom_filter = self.bloom_filter.read().unwrap();
             bloom_filter_data_as_vec_u8 = bloom_filter
                 .get_array()
                 .iter()
@@ -134,59 +138,96 @@ impl KeyValueStore {
     }
 
     fn insert_internal(
-        tree: &ThreadGuard<BPlusTree>,
+        tree: &Arc<RwLock<BPlusTree>>,
         logger: &ThreadGuard<Logger>,
-        bloom_filter: &ThreadGuard<BloomFilter>,
+        bloom_filter: &Arc<RwLock<BloomFilter>>,
         key: &String,
         value: String,
     ) -> KvResult<()> {
-        let mut logger = logger.lock().unwrap();
-        let mut tree = tree.lock().unwrap();
-        let mut bloom_filter = bloom_filter.lock().unwrap();
         if key.len() > MAX_KEY_SIZE {
-            logger.log_error(format!(
-                "key:{} has a len of {} and it needs to be less then {}",
-                key,
-                key.len(),
-                MAX_KEY_SIZE
-            ))?;
+            {
+                let mut logger = logger.lock().unwrap();
+
+                logger.log_error(format!(
+                    "key:{} has a len of {} and it needs to be less then {}",
+                    key,
+                    key.len(),
+                    MAX_KEY_SIZE
+                ))?;
+            }
             return Err(KeyValueError::KeyToLarge);
         }
+
         let value = EncryptionService::get_instance()
             .read()
             .unwrap()
             .encrypt(value, key);
 
-        let op_log = logger.log_insert_operation(key, &value)?;
-        tree.insert(key.clone(), &value)?;
-        bloom_filter.insert(&key);
+        let op_log = {
+            let mut logger = logger.lock().unwrap();
+            logger.log_insert_operation(key, &value)?
+        };
 
-        logger.mark_operation_as_completed(&op_log)?;
+        {
+            let mut tree = tree.write().unwrap();
+            tree.insert(key.clone(), &value)?;
+        }
+
+        {
+            let mut bloom_filter = bloom_filter.write().unwrap();
+            bloom_filter.insert(&key);
+        }
+
+        {
+            let mut logger = logger.lock().unwrap();
+            logger.mark_operation_as_completed(&op_log)?;
+        }
         Ok(())
     }
     fn search_internal(
-        tree: &ThreadGuard<BPlusTree>,
-        bloom_filter: &ThreadGuard<BloomFilter>,
+        tree: &ThreadProtector<BPlusTree>,
+        bloom_filter: &ThreadProtector<BloomFilter>,
         logger: &ThreadGuard<Logger>,
         key: &String,
     ) -> KvResult<Option<String>> {
-        let mut tree = tree.lock().unwrap();
-        let mut bloom_filter = bloom_filter.lock().unwrap();
-        let mut logger = logger.lock().unwrap();
+        println!("started search for {}",key);
         if key.len() > MAX_KEY_SIZE {
-            logger.log_error(format!(
-                "key:{} has a len of {} and it needs to be less then {}",
-                key,
-                key.len(),
-                MAX_KEY_SIZE
-            ))?;
+            {
+                let mut logger = logger.lock().unwrap();
+                logger.log_error(format!(
+                    "key:{} has a len of {} and it needs to be less then {}",
+                    key,
+                    key.len(),
+                    MAX_KEY_SIZE
+                ))?;
+            }
             return Err(KeyValueError::KeyToLarge);
         }
 
-        Ok(if bloom_filter.contains(&key) {
-            let op_log = logger.log_select_operation(key)?;
+        let contains = {
+            println!("locking bloom filter in {}",key);
+            let bloom_filter = bloom_filter.read().unwrap();
+            println!("locked bloom filter in {}",key);
+            bloom_filter.contains(&key)
+        };
+        
 
-            let ret = if let Some(ret_encrypted) = tree.search(key.clone())? {
+        Ok(if contains {
+            let op_log = {
+                println!("locking logger in {}",key);
+                let mut logger = logger.lock().unwrap();
+                println!("locked logger in {}",key);
+
+                logger.log_select_operation(key)?
+            };
+
+            let search = {
+                println!("locking tree in {}",key);
+                let tree = tree.read().unwrap();
+                println!("locked tree in {}",key);
+                tree.search(key.clone())
+            };
+            let ret = if let Some(ret_encrypted) = search? {
                 Some(
                     EncryptionService::get_instance()
                         .read()
@@ -197,7 +238,13 @@ impl KeyValueStore {
                 None
             };
 
-            logger.mark_operation_as_completed(&op_log)?;
+            {
+                println!("locking logger in {}",key);
+                let mut logger = logger.lock().unwrap();
+                println!("locked logger in {}",key);
+
+                logger.mark_operation_as_completed(&op_log)?;
+            }
 
             ret
         } else {
@@ -206,37 +253,46 @@ impl KeyValueStore {
     }
     fn update_internal(
         logger: &ThreadGuard<Logger>,
-        tree: &ThreadGuard<BPlusTree>,
-        bloom_filter: &ThreadGuard<BloomFilter>,
+        tree: &ThreadProtector<BPlusTree>,
+        bloom_filter: &ThreadProtector<BloomFilter>,
         overwatch: &ThreadGuard<Overwatch<String>>,
         key: &String,
         new_value: String,
     ) -> KvResult<Option<String>> {
-        let mut logger = logger.lock().unwrap();
-        let mut tree = tree.lock().unwrap();
-        let mut bloom_filter = bloom_filter.lock().unwrap();
-        let mut overwatch = overwatch.lock().unwrap();
-
         if key.len() > MAX_KEY_SIZE {
-            logger.log_error(format!(
-                "key:{} has a len of {} and it needs to be less then {}",
-                key,
-                key.len(),
-                MAX_KEY_SIZE
-            ))?;
+            {
+                let mut logger = logger.lock().unwrap();
+                logger.log_error(format!(
+                    "key:{} has a len of {} and it needs to be less then {}",
+                    key,
+                    key.len(),
+                    MAX_KEY_SIZE
+                ))?;
+            }
             return Err(KeyValueError::KeyToLarge);
         }
-
-        if bloom_filter.contains(&key) {
+        let contains = {
+            let bloom_filter = bloom_filter.read().unwrap();
+            bloom_filter.contains(&key)
+        };
+        if contains {
             let new_value_as_string = new_value.clone();
             let new_value = EncryptionService::get_instance()
                 .read()
                 .unwrap()
                 .encrypt(new_value, key);
 
-            let op_log = logger.log_update_operation(key, &new_value)?;
+            let op_log = {
+                let mut logger = logger.lock().unwrap();
+                logger.log_update_operation(key, &new_value)?
+            };
 
-            let ret = if let Some(ret_encrypted) = tree.update(key.clone(), &new_value)? {
+            let update = {
+                let mut tree = tree.write().unwrap();
+                tree.update(key.clone(), &new_value)
+            };
+
+            let ret = if let Some(ret_encrypted) = update? {
                 Some(
                     EncryptionService::get_instance()
                         .read()
@@ -248,41 +304,56 @@ impl KeyValueStore {
             };
 
             if ret.is_some() {
+                let mut overwatch = overwatch.lock().unwrap();
                 overwatch.get_update(key, new_value_as_string)
             }
 
-            logger.mark_operation_as_completed(&op_log)?;
+            {
+                let mut logger = logger.lock().unwrap();
+                logger.mark_operation_as_completed(&op_log)?;
+            }
             Ok(ret)
         } else {
             Ok(None)
         }
     }
     fn delete_internal(
-        tree: &ThreadGuard<BPlusTree>,
-        bloom_filter: &ThreadGuard<BloomFilter>,
+        tree: &ThreadProtector<BPlusTree>,
+        bloom_filter: &ThreadProtector<BloomFilter>,
         logger: &ThreadGuard<Logger>,
         overwatch: &ThreadGuard<Overwatch<String>>,
         key: &String,
     ) -> KvResult<()> {
-        let mut logger = logger.lock().unwrap();
-        let mut tree = tree.lock().unwrap();
-        let mut bloom_filter = bloom_filter.lock().unwrap();
-        let mut overwatch = overwatch.lock().unwrap();
-
         if key.len() > MAX_KEY_SIZE {
-            logger.log_error(format!(
-                "key:{} has a len of {} and it needs to be less then {}",
-                key,
-                key.len(),
-                MAX_KEY_SIZE
-            ))?;
+            {
+                let mut logger = logger.lock().unwrap();
+
+                logger.log_error(format!(
+                    "key:{} has a len of {} and it needs to be less then {}",
+                    key,
+                    key.len(),
+                    MAX_KEY_SIZE
+                ))?;
+            }
             return Err(KeyValueError::KeyToLarge);
         }
 
-        if bloom_filter.contains(&key) {
-            let op_log = logger.log_delete_operation(key)?;
+        let contains = {
+            let bloom_filter = bloom_filter.read().unwrap();
+            bloom_filter.contains(&key)
+        };
+        if contains {
+            let op_log = {
+                let mut logger = logger.lock().unwrap();
+                logger.log_delete_operation(key)?
+            };
 
-            let ret = if let Some(ret_encrypted) = tree.search(key.clone())? {
+            let vec = {
+                let tree = tree.read().unwrap();
+
+                tree.search(key.clone())?
+            };
+            let ret = if let Some(ret_encrypted) = vec {
                 Some(
                     EncryptionService::get_instance()
                         .read()
@@ -292,15 +363,26 @@ impl KeyValueStore {
             } else {
                 None
             };
-            tree.delete(key.clone())?;
-
-            if let Some(last_value) = ret {
-                overwatch.get_delete(key, last_value);
-                overwatch.remove_delete(key);
+            {
+                let mut tree = tree.write().unwrap();
+                tree.delete(key.clone())?;
             }
-            overwatch.remove_update(key);
 
-            logger.mark_operation_as_completed(&op_log)?;
+            {
+                let mut overwatch = overwatch.lock().unwrap();
+
+                if let Some(last_value) = ret {
+                    overwatch.get_delete(key, last_value);
+                    overwatch.remove_delete(key);
+                }
+                overwatch.remove_update(key);
+            }
+
+            {
+                let mut logger = logger.lock().unwrap();
+
+                logger.mark_operation_as_completed(&op_log)?;
+            }
         }
         Ok(())
     }
@@ -310,15 +392,23 @@ impl KeyValueStore {
         let logger = Arc::clone(&self.logger);
         let bloom_filter = Arc::clone(&self.bloom_filter);
         let name = self.name.clone();
+
         ThreadPool::get_instance()
             .write()
             .unwrap()
             .execute(move || {
                 if let Err(e) = Self::insert_internal(&tree, &logger, &bloom_filter, &key, value) {
+                    println!(" had an error");
                     logger
                         .lock()
                         .unwrap()
                         .log_error(format!("cant insert to {} because {:?}", name, e))
+                        .expect("cant log error in insert");
+                } else {
+                    logger
+                        .lock()
+                        .unwrap()
+                        .log_info(format!("inserted {} into {}", name, key))
                         .expect("cant log error in insert");
                 };
             });
@@ -356,14 +446,22 @@ impl KeyValueStore {
         let logger = Arc::clone(&self.logger);
         let bloom_filter = Arc::clone(&self.bloom_filter);
         let name = self.name.clone();
+
         ThreadPool::get_instance().write().unwrap().compute(
             move |_| match Self::search_internal(&tree, &bloom_filter, &logger, &key) {
-                Ok(ret) => ret,
+                Ok(ret) => {
+                    logger
+                        .lock()
+                        .unwrap()
+                        .log_info(format!("found {} in {}", key, name))
+                        .expect("cant log error in insert");
+                    ret
+                }
                 Err(e) => {
                     logger
                         .lock()
                         .unwrap()
-                        .log_error(format!("cant insert to {} because {:?}", name, e))
+                        .log_error(format!("cant search {} in {} because {:?}", key, name, e))
                         .expect("cant log error in insert");
                     None
                 }
@@ -392,18 +490,19 @@ impl KeyValueStore {
                 };
             });
     }
-    pub fn erase(self){
-        fs::remove_file(&format!("{}{}", self.name, OPERATION_LOGGER_FILE_ENDING)).unwrap();// op logger
-        fs::remove_file(&format!("{}.{}", self.name, BLOOM_FILTER_PATH)).unwrap();//bloom filter
-        fs::remove_file(&format!("{}{}",self.name,FILE_ENDING)).unwrap(); // btree root id
-        fs::remove_file(&format!("{}{}", self.name, ".log")).unwrap();//general logger
-        fs::remove_file(&format!("{}.{}", self.name, logger::LOGGER_CONFIG_FILENAME)).unwrap();// logger config
-        fs::remove_dir_all(&format!("{}_{}", self.name, RESTORER_DIR)).unwrap();//backup
+    pub fn erase(self) {
+        fs::remove_file(&format!("{}{}", self.name, OPERATION_LOGGER_FILE_ENDING)).unwrap(); // op logger
+        fs::remove_file(&format!("{}.{}", self.name, BLOOM_FILTER_PATH)).unwrap(); //bloom filter
+        fs::remove_file(&format!("{}{}", self.name, FILE_ENDING)).unwrap(); // btree root id
+        fs::remove_file(&format!("{}{}", self.name, ".log")).unwrap(); //general logger
+        fs::remove_file(&format!("{}.{}", self.name, logger::LOGGER_CONFIG_FILENAME)).unwrap(); // logger config
+        fs::remove_dir_all(&format!("{}_{}", self.name, RESTORER_DIR)).unwrap(); //backup
         fs::remove_file(&format!(
             "{}{}{}",
             self.name, VALUES_FILE_ENDING, FILE_ENDING
-        )).unwrap(); // values
-        
+        ))
+        .unwrap(); // values
+
         fs::remove_file(&format!(
             "{}{}{}",
             self.name, NODES_FILE_ENDING, FILE_ENDING
@@ -412,14 +511,119 @@ impl KeyValueStore {
     }
 }
 
-
 #[cfg(test)]
-mod tests{
+mod tests {
     use super::*;
     #[test]
     fn test_kv_new() {
         let name = "test".to_string();
         let kv = KeyValueStore::new(name);
+        kv.erase();
+    }
+    #[test]
+    fn test_kv_non_multi_threaded() {
+        let name = "test".to_string();
+        let kv = KeyValueStore::new(name);
+        let tree = Arc::clone(&kv.tree);
+        let logger = Arc::clone(&kv.logger);
+        let bloom_filter = Arc::clone(&kv.bloom_filter);
+        let overwatch = Arc::clone(&kv.overwatch);
+
+        for i in 0..10 {
+            println!("inserting {}", i);
+            KeyValueStore::insert_internal(
+                &tree,
+                &logger,
+                &bloom_filter,
+                &format!("key_{}", i),
+                format!("value_{}", i),
+            )
+            .expect("cant insert");
+        }
+        println!("finished inserts");
+
+        for i in 0..10 {
+            let result = KeyValueStore::search_internal(
+                &tree,
+                &bloom_filter,
+                &logger,
+                &format!("key_{}", i),
+            )
+            .expect("cant search in kv");
+            assert!(result == Some(format!("value_{}", i)));
+        }
+
+        println!("finished searches");
+
+        for i in 0..10 {
+            let result = KeyValueStore::update_internal(
+                &logger,
+                &tree,
+                &bloom_filter,
+                &overwatch,
+                &format!("key_{}", i),
+                format!("value_{}", i + 1),
+            )
+            .expect("cnat update");
+            assert!(result == Some(format!("value_{}", i)));
+            let result = KeyValueStore::search_internal(
+                &tree,
+                &bloom_filter,
+                &logger,
+                &format!("key_{}", i),
+            )
+            .expect("cant search in kv");
+            assert!(result == Some(format!("value_{}", i + 1)));
+        }
+
+        println!("finished update");
+
+        // todo merge after b tree bug fixes then add tests for large value counts + delete tests
+        kv.erase();
+    }
+    #[test]
+    fn test_kv_crud() {
+        let name = "test".to_string();
+        let mut kv = KeyValueStore::new(name);
+
+        for i in 0..10 {
+            kv.insert(format!("key_{}", i), format!("value_{}", i));
+        }
+        println!("finished inserts");
+
+        let mut search_results = vec![];
+        for i in 0..10 {
+            println!("started search for {}",i);
+            let result = kv.search(format!("key_{}", i));
+            println!("queued search for {}",i);
+            search_results.push(result);
+            println!("add search for {} to handle collection",i);
+        }
+        println!("finished queueing the searches");
+        search_results.into_iter().enumerate().for_each(|(i, res)| {
+            println!("checking if index {} is ok",i);
+            assert!(res.get() == Some(format!("value_{}", i)));
+            println!("index {} is ok",i);
+        });
+        println!("finished searches");
+
+        let mut search_results = vec![];
+        let mut old_values = vec![];
+        for i in 0..10 {
+            let result = kv.update(format!("key_{}", i), format!("value_{}", i + 1));
+            old_values.push(result);
+            let result = kv.search(format!("key_{}", i));
+            search_results.push(result);
+        }
+        old_values.into_iter().enumerate().for_each(|(i, res)| {
+            assert!(res.get() == Some(format!("value_{}", i)));
+        });
+        search_results.into_iter().enumerate().for_each(|(i, res)| {
+            assert!(res.get() == Some(format!("value_{}", i + 1)));
+        });
+        println!("finished update");
+
+        // todo merge after b tree bug fixes then add tests for large value counts + delete tests
         kv.erase();
     }
 }

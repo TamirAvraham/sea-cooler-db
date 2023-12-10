@@ -2,7 +2,7 @@ use std::{
     cell::Cell,
     fs::File,
     io::{Read, Seek, SeekFrom, Write},
-    sync::{RwLock, RwLockWriteGuard},
+    sync::{RwLock, RwLockWriteGuard, Mutex},
 };
 
 use crate::{
@@ -19,9 +19,9 @@ pub struct FileCache {
     file: RwLock<File>,
     cache_size: usize,
     cache: RwLock<Vec<u8>>,
-    start: Cell<usize>,
-    end: Cell<usize>,
-    current_file_page_count: Cell<usize>,
+    start: Mutex<usize>,
+    end: Mutex<usize>,
+    current_file_page_count: Mutex<usize>,
     empty_pages: Vec<usize>,
 }
 
@@ -73,9 +73,9 @@ impl FileCache {
             file: RwLock::new(file),
             cache_size: page_size,
             cache: RwLock::new(cache),
-            start: Cell::new(0),
-            end: Cell::new(page_size - 1),
-            current_file_page_count: Cell::new(current_file_page_count),
+            start: Mutex::new(0),
+            end: Mutex::new(page_size - 1),
+            current_file_page_count: Mutex::new(current_file_page_count),
             empty_pages: empty_page_ids,
         }
     }
@@ -106,11 +106,11 @@ impl FileCache {
     }
     #[inline]
     fn relative_id(&self, page_id: usize) -> Option<usize> {
-        let (start, end) = (self.start.get(), self.end.get());
-        if page_id >= start && page_id <= end {
+        let (start, end) = (self.start.lock().unwrap(), self.end.lock().unwrap());
+        if page_id >= *start && page_id <= *end {
             //start<page_id<end?
             //16,12,14,5,2
-            Some(page_id - start)
+            Some(page_id - *start)
         } else {
             None
         }
@@ -120,9 +120,9 @@ impl FileCache {
         let mut file = self
             .file
             .write()
-            .map_err(map_err(Error::MovingCacheError(self.start.get())))?;
+            .map_err(map_err(Error::MovingCacheError(*self.start.lock().unwrap())))?;
 
-        file.seek(SeekFrom::Start((PAGE_SIZE * self.start.get()) as u64))
+        file.seek(SeekFrom::Start((PAGE_SIZE * *self.start.lock().unwrap()) as u64))
             .map_err(map_err(Error::FileError))?;
 
         file.write_all(&cache).map_err(map_err(Error::FileError))?;
@@ -140,13 +140,13 @@ impl FileCache {
             .write()
             .map_err(map_err(Error::MovingCacheError(start)))?;
 
-        let new_cache = if self.current_file_page_count.get() < start + self.cache_size {
-            let new_page_count = (start + self.cache_size) - self.current_file_page_count.get();
+        let new_cache = if *self.current_file_page_count.lock().unwrap() < start + self.cache_size {
+            let new_page_count = (start + self.cache_size) - *self.current_file_page_count.lock().unwrap();
             let mut new_cache = vec![];
 
             if new_page_count < self.cache_size {
                 let amount_of_pages_i_already_have =
-                    self.current_file_page_count.get() % self.cache_size;
+                    *self.current_file_page_count.lock().unwrap() % self.cache_size;
 
                 file.seek(SeekFrom::End(0))
                     .map_err(map_err(Error::MovingCacheError(start)))?;
@@ -158,7 +158,7 @@ impl FileCache {
             }
 
             new_cache.extend(vec![0; new_page_count * PAGE_SIZE]);
-            self.current_file_page_count.set(start + self.cache_size);
+            *self.current_file_page_count.lock().unwrap()=start + self.cache_size;
             new_cache
         } else {
             file.seek(SeekFrom::Start(start as u64))
@@ -171,8 +171,8 @@ impl FileCache {
 
         *(*cache) = new_cache;
 
-        self.start.set(start);
-        self.end.set(start + self.cache_size);
+        *self.start.lock().unwrap()=start;
+        *self.end.lock().unwrap()=start + self.cache_size;
 
         Ok(())
     }
@@ -306,7 +306,7 @@ impl FileCache {
         let page_id = if let Some(page_id) = self.empty_pages.pop() {
             page_id
         } else {
-            self.end.get() + 1
+            *self.end.lock().unwrap() + 1
         };
 
         let new_node = Node {
@@ -381,7 +381,7 @@ impl FileCache {
         if let Some(page_id) = self.empty_pages.pop() {
             page_id
         } else {
-            self.end.get() + 1
+            *self.end.lock().unwrap() + 1
         }
     }
 }
@@ -425,13 +425,13 @@ mod tests {
     fn test_move_cache() {
         let cache = get_file_cache(5);
         let mut data_lock = cache.cache.write().unwrap();
-        assert_eq!(cache.current_file_page_count.get(), 5);
+        assert_eq!(*cache.current_file_page_count.lock().unwrap(), 5);
 
         cache.move_cache(10, &mut data_lock).unwrap();
-        assert_eq!(cache.current_file_page_count.get(), 15);
+        assert_eq!(*cache.current_file_page_count.lock().unwrap(), 15);
 
         cache.move_cache(0, &mut data_lock).unwrap();
-        assert_eq!(cache.current_file_page_count.get(), 15);
+        assert_eq!(*cache.current_file_page_count.lock().unwrap(), 15);
 
         //add more test cases like from 5 to 45 and make sure all the pages existed
     }
@@ -461,7 +461,7 @@ mod tests {
 
         let mut data = cache.cache.write().unwrap();
 
-        let read_start = cache.end.get() * PAGE_SIZE;
+        let read_start = *cache.end.lock().unwrap() * PAGE_SIZE;
 
         data[read_start..read_start + 8].copy_from_slice(&value.to_be_bytes());
         cache.move_cache(page_size * 2, &mut data).unwrap();

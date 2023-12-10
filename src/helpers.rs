@@ -47,7 +47,7 @@ impl<T,F> Deref for Lazy<T,F> where F: FnOnce()->T{
 pub fn get_cpu_cores() -> usize {
     if let Ok(cores) = std::env::var("NUMBER_OF_PROCESSORS") {
         if let Ok(cores) = cores.parse::<usize>() {
-            return cores;
+            return cores - 1 ;
         }
     }
     0
