@@ -21,12 +21,14 @@ struct Worker {
 impl Worker {
     pub fn new(id: usize, receiver: Arc<Mutex<Receiver<Message>>>) -> Self {
         let thread = thread::spawn(move || loop {
+            // println!("thread {} is empty",id);
             let message = receiver.lock().unwrap().recv().unwrap();
-
+            // println!("thread {} got a message",id);
             match message {
                 Message::Close => break,
                 Message::Do(job) => {
                     job();
+                    // println!("thread {} completed job",id);
                 }
             }
         });
@@ -115,21 +117,19 @@ impl Drop for ThreadPool {
 }
 
 
-pub static mut SINGLETON:Option<RwLock<ThreadPool>>=None;
+pub static mut SINGLETON:Option<Arc<ThreadPool>>=None;
 static INIT:Once=Once::new();
 
 
 impl ThreadPool {
-    pub fn get_instance()-> &'static mut RwLock<Self>{
+    pub fn get_instance()-> Arc<Self>{
         INIT.call_once(||
             unsafe {
-                SINGLETON=Some(RwLock::new(Self::new(get_cpu_cores())));
+                SINGLETON=Some(Arc::new(Self::new(get_cpu_cores())));
             }
         );
 
-        unsafe {
-            SINGLETON.as_mut().unwrap()
-        }
+        unsafe { Arc::clone(SINGLETON.as_ref().unwrap()) }
     }
 }
 
@@ -156,13 +156,17 @@ mod tests {
         let thread_pool = ThreadPool::new(4);
         let num = 4;
         let result1 = thread_pool.compute(|num| num * 30303, num);
-        assert!(result1.get() == num * 30303)
+        assert!(result1.get() == num * 30303);
+        let f = |mut x : i32| {(0..10).for_each(|i| x+=x*i); x};
+        let res1=thread_pool.compute(f, num);
+        let res2=thread_pool.compute(f, num);
+        assert!(res1.get()==res2.get())
     }
 
 
     #[test]
     fn test_singleton() {
-        let t=ThreadPool::get_instance().read().unwrap();
+        let t=ThreadPool::get_instance();
         t.execute(|| println!("hello world"))
     }
 }

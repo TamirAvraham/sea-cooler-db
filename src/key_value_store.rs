@@ -203,6 +203,7 @@ impl KeyValueStore {
             }
             return Err(KeyValueError::KeyToLarge);
         }
+        println!("checked key size");
 
         let contains = {
             println!("locking bloom filter in {}",key);
@@ -214,19 +215,22 @@ impl KeyValueStore {
 
         Ok(if contains {
             let op_log = {
-                println!("locking logger in {}",key);
+                println!("locking logger in {} to log op",key);
                 let mut logger = logger.lock().unwrap();
-                println!("locked logger in {}",key);
+                println!("locked logger in {} logging op",key);
 
                 logger.log_select_operation(key)?
+                
             };
-
+            println!("logged search for key {}",key);
+            println!("started search in tree fro key {}",key);
             let search = {
                 println!("locking tree in {}",key);
                 let tree = tree.read().unwrap();
                 println!("locked tree in {}",key);
                 tree.search(key.clone())
             };
+            println!("got result for search {}:{:?}",key,search);
             let ret = if let Some(ret_encrypted) = search? {
                 Some(
                     EncryptionService::get_instance()
@@ -237,7 +241,7 @@ impl KeyValueStore {
             } else {
                 None
             };
-
+            println!("decrypted the value got {:?}" ,ret);
             {
                 println!("locking logger in {}",key);
                 let mut logger = logger.lock().unwrap();
@@ -394,8 +398,6 @@ impl KeyValueStore {
         let name = self.name.clone();
 
         ThreadPool::get_instance()
-            .write()
-            .unwrap()
             .execute(move || {
                 if let Err(e) = Self::insert_internal(&tree, &logger, &bloom_filter, &key, value) {
                     println!(" had an error");
@@ -419,7 +421,7 @@ impl KeyValueStore {
         let bloom_filter = Arc::clone(&self.bloom_filter);
         let overwatch = Arc::clone(&self.overwatch);
         let name = self.name.clone();
-        ThreadPool::get_instance().write().unwrap().compute(
+        ThreadPool::get_instance().compute(
             move |_| match Self::update_internal(
                 &logger,
                 &tree,
@@ -446,28 +448,34 @@ impl KeyValueStore {
         let logger = Arc::clone(&self.logger);
         let bloom_filter = Arc::clone(&self.bloom_filter);
         let name = self.name.clone();
+        println!("moving code to threadpool");
+        let (send,ret)=std::sync::mpsc::channel();
 
-        ThreadPool::get_instance().write().unwrap().compute(
-            move |_| match Self::search_internal(&tree, &bloom_filter, &logger, &key) {
-                Ok(ret) => {
-                    logger
-                        .lock()
-                        .unwrap()
-                        .log_info(format!("found {} in {}", key, name))
-                        .expect("cant log error in insert");
-                    ret
-                }
-                Err(e) => {
-                    logger
-                        .lock()
-                        .unwrap()
-                        .log_error(format!("cant search {} in {} because {:?}", key, name, e))
-                        .expect("cant log error in insert");
-                    None
-                }
-            },
-            (),
-        )
+        ThreadPool::get_instance().execute(
+            move || {
+                println!("calling search internal for {}",key);
+                send.send(match Self::search_internal(&tree, &bloom_filter, &logger, &key) {
+                    Ok(ret) => {
+                        logger
+                            .lock()
+                            .unwrap()
+                            .log_info(format!("found {} in {}", key, name))
+                            .expect("cant log error in insert");
+                        ret
+                    }
+                    Err(e) => {
+                        logger
+                            .lock()
+                            .unwrap()
+                            .log_error(format!("cant search {} in {} because {:?}", key, name, e))
+                            .expect("cant log error in insert");
+                        None
+                    }
+                }).expect("cant send back result of search");
+            }
+            
+        );
+        ComputedValue::new(ret)
     }
     pub fn delete(&mut self, key: String) {
         let tree = Arc::clone(&self.tree);
@@ -476,8 +484,7 @@ impl KeyValueStore {
         let overwatch = Arc::clone(&self.overwatch);
         let name = self.name.clone();
         ThreadPool::get_instance()
-            .write()
-            .unwrap()
+            
             .execute(move || {
                 if let Err(e) =
                     Self::delete_internal(&tree, &bloom_filter, &logger, &overwatch, &key)
@@ -565,7 +572,7 @@ mod tests {
                 format!("value_{}", i + 1),
             )
             .expect("cnat update");
-            assert!(result == Some(format!("value_{}", i)));
+            assert_eq!(result, Some(format!("value_{}", i)));
             let result = KeyValueStore::search_internal(
                 &tree,
                 &bloom_filter,
@@ -573,7 +580,7 @@ mod tests {
                 &format!("key_{}", i),
             )
             .expect("cant search in kv");
-            assert!(result == Some(format!("value_{}", i + 1)));
+            assert_eq!(result, Some(format!("value_{}", i + 1)));
         }
 
         println!("finished update");
@@ -625,5 +632,17 @@ mod tests {
 
         // todo merge after b tree bug fixes then add tests for large value counts + delete tests
         kv.erase();
+    }
+    #[test]
+    fn test_kv_insert() {
+        let name = "test".to_string();
+        let mut kv = KeyValueStore::new(name);
+
+        for i in 0..1000 {
+            println!("inserting i:{}",i);
+            kv.insert(format!("key_{}", i), format!("value_{}", i));
+        }
+        println!("finished inserts");
+        kv.erase()
     }
 }

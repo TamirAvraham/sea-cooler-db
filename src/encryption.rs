@@ -1,4 +1,4 @@
-use std::sync::{RwLockReadGuard, Once, RwLock};
+use std::sync::{RwLockReadGuard, Once, RwLock, Arc};
 
 use crate::{aes128, thread_pool::ThreadPool};
 
@@ -47,11 +47,11 @@ static mut SINGLETON:Option<RwLock<EncryptionService>>=None;
 static INIT:Once=Once::new();
 
 pub struct EncryptionService {
-    threadpool_connection:RwLockReadGuard<'static,ThreadPool>,
+    threadpool_connection:Arc<ThreadPool>,
 }
 impl EncryptionService {
     fn new() -> EncryptionService {
-        EncryptionService{ threadpool_connection: ThreadPool::get_instance().read().unwrap()  }
+        EncryptionService{ threadpool_connection: ThreadPool::get_instance() }
     }
 
     pub fn encrypt(&self,text:String,key:&String)->Vec<u8>{
