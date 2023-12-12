@@ -50,7 +50,6 @@ impl From<io::Error> for KeyValueError {
 }
 /*
    shit i need to impl:
-   add graceful crashes
    test restore on logger
    maybe start collections
 */
