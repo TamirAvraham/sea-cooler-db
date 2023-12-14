@@ -126,8 +126,11 @@ impl Node {
             i > self.keys.len()
         }) || (self.is_leaf && self.keys[i] != key)
         {
+            // println!("Wrong key - ({})", key.clone());   // You can delete these but just so you know, they're very helpful in debugging
+            // println!("All the keys - {:?}", self.keys);
             None
         } else {
+            //println!("Correct key - {}", key.clone());    // Also helpful in debugging
             self.values.get(i)
         }
     }

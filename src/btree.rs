@@ -356,14 +356,19 @@ impl BPlusTree {
         Self::search_internal(key, &self.pager, self.root_page_id)
     }
 
-    fn delete_node(key: String, pager: &mut Pager, node_page_id: usize) -> Result<(), Error> {
-        let mut i = 0;
-        let mut node = pager.read_node(node_page_id)?;
+    fn delete_node(
+        key: String,
+        pager: &mut Pager,
+        node_page_id:usize,
+    ) -> Result<(), Error> {
+        let mut node=pager.read_node(node_page_id)?;
 
         match node.is_leaf {
             true => {
-                if let Some(value_location) = node.get(key) {
-                    pager.delete_value(*value_location)?;
+                if let Some(check_if_key_exists) = node.get(key.clone()) {
+                    let i = node.keys.iter().position(|r| r.clone() == key.clone()).unwrap();
+
+                    pager.delete_value(node.values[i])?;
 
                     node.keys.remove(i);
                     node.values.remove(i);
@@ -459,6 +464,26 @@ mod tests {
             let res = tree.search(key).expect(&err_msg);
             assert_eq!(res, Some(value.as_bytes().to_vec()), "{}", err_msg);
         });
+        println!("completed search");
+        (1..=range).rev().for_each(|i|{
+            let key=format!("key_{}",i);
+            let err_msg=format!("error when serching for i:{}",i);
+            println!("deleting {}",key.clone());
+            tree.delete(key.clone()).expect(&err_msg);
+            (1..i).for_each(|i| {
+                let key=format!("key_{}",i);
+                let value=format!("value_{}",i);
+                let err_msg=format!("error when serching for i:{}",i);
+                println!("searching {}",key.clone());
+                let res=tree.search(key).expect(&err_msg);
+                assert_eq!(res,Some(value),"{}", err_msg);
+            });
+            let res=tree.search(key).expect(&err_msg);
+            assert_eq!(res,None,"{}",err_msg);
+        });
+        println!("delete complete");
+
+
 
         cleanup_temp_files();
         println!("completed tree tests with t=2");
@@ -493,12 +518,60 @@ mod tests {
             assert_eq!(res, Some(value.as_bytes().to_vec()), "{}", err_msg);
         });
         // Delete a key
-        tree.delete("key2".to_string()).unwrap();
-        assert_eq!(tree.search("key2".to_string()).unwrap(), None);
+        tree.delete("key_2".to_string()).unwrap();
+        assert_eq!(tree.search("key_2".to_string()).unwrap(), None);
 
+        println!("After deleting an existing key:");
+        tree.print();
         // Attempt to delete a non-existent key
-        tree.delete("key4".to_string()).unwrap();
-        assert_eq!(tree.search("key4".to_string()).unwrap(), None);
+        tree.delete("key_4".to_string()).unwrap();
+        assert_eq!(tree.search("key_4".to_string()).unwrap(), None);
+        
+        println!("After deleting non existent key:");
+        tree.print();
+    }
+
+    #[test]
+    fn test_update() {
+        let path = "temp".to_string();
+        let mut tree = BTreeBuilder::new()
+            .path(path.clone())
+            .t(2)
+            .name(&path)
+            .build()
+            .unwrap();
+
+        let range = 100;
+        (1..=range).for_each(|i| {
+            println!("inserting i:{}",i);
+            let key=format!("key_{}",i);
+            let value=format!("value_{}",i);
+            let err_msg=format!("error when inserting i:{}",i);
+            tree.insert(key, value.as_bytes()).expect(&err_msg);
+            tree.print();
+            println!("_____________________________________________________________________________________________");
+        });
+        tree.print();
+        (1..=range).for_each(|i| {
+            let key = format!("key_{}", i);
+            let value = format!("value_{}", i);
+            let err_msg = format!("error when searching for i:{}", i);
+            let res = tree.search(key).expect(&err_msg);
+            assert_eq!(res, Some(value.as_bytes().to_vec()), "{}", err_msg);
+        });
+
+        (1..=range).for_each(|i| {
+            let key = format!("key_{}", i);
+            let old_value = format!("value_{}", i);
+            let new_value = format!("value_{}", i + 2);
+            let err_msg = format!("error when updating i:{}", i);
+            let res = tree
+                .update(key.clone(), new_value.as_bytes())
+                .expect(&err_msg);
+            assert_eq!(res, Some(old_value.as_bytes().to_vec()));
+            let res = tree.search(key).expect(&err_msg);
+            assert_eq!(res, Some(new_value.as_bytes().to_vec()), "{}", err_msg);
+        });
     }
 
     #[test]
@@ -545,13 +618,9 @@ mod tests {
     }
     #[test]
     fn test_default_t_tree_just_insert_and_search() {
-        let path = "temp".to_string();
-        let mut tree = BTreeBuilder::new()
-            .path(path.clone())
-            .t(DEFAULT_T)
-            .build()
-            .unwrap();
-        let range = DEFAULT_T * 105;
+        let path="temp".to_string();
+        let mut tree=BTreeBulider::new().path(path.clone()).t(DEFAULT_T).build().unwrap();
+        let range=DEFAULT_T*100;
         (1..=range).for_each(|i| {
             println!("inserting i:{}",i);
             let key=format!("key_{}",i);
@@ -570,6 +639,24 @@ mod tests {
             let res = tree.search(key).expect(&err_msg);
             assert_eq!(res, Some(value.as_bytes().to_vec()), "{}", err_msg);
         });
+        println!("completed search");
+        (1..=range).rev().for_each(|i|{
+            let key=format!("key_{}",i);
+            let err_msg=format!("error when serching for i:{}",i);
+            println!("deleting {}",key.clone());
+            tree.delete(key.clone()).expect(&err_msg);
+            (1..i).for_each(|i| {
+                let key=format!("key_{}",i);
+                let value=format!("value_{}",i);
+                let err_msg=format!("error when serching for i:{}",i);
+                println!("searching {}",key.clone());
+                let res=tree.search(key).expect(&err_msg);
+                assert_eq!(res,Some(value),"{}", err_msg);
+            });
+            let res=tree.search(key).expect(&err_msg);
+            assert_eq!(res,None,"{}",err_msg);
+        });
+        println!("delete complete");
 
         cleanup_temp_files();
         println!("completed tree tests with t={}", DEFAULT_T);
