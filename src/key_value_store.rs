@@ -15,7 +15,7 @@ use crate::{
     thread_pool::{ComputedValue, ThreadPool},
 };
 #[derive(Debug)]
-enum KeyValueError {
+pub enum KeyValueError {
     LoggerError(LoggerError),
     BtreeError(Error),
     FileError(io::Error),
@@ -26,7 +26,7 @@ enum KeyValueError {
 type KvResult<T> = Result<T, KeyValueError>;
 type ThreadGuard<T> = Arc<Mutex<T>>;
 type ThreadProtector<T> = Arc<RwLock<T>>;
-struct KeyValueStore {
+pub struct KeyValueStore {
     name: String,
     logger: ThreadGuard<Logger>,
     overwatch: ThreadGuard<Overwatch<String>>,
@@ -142,7 +142,7 @@ impl KeyValueStore {
         bloom_filter: &Arc<RwLock<BloomFilter>>,
         key: &String,
         value: String,
-    ) -> KvResult<()> {
+    ) -> KvResult<usize> {
         if key.len() > MAX_KEY_SIZE {
             {
                 let mut logger = logger.lock().unwrap();
@@ -167,10 +167,10 @@ impl KeyValueStore {
             logger.log_insert_operation(key, &value)?
         };
 
-        {
+        let ret={
             let mut tree = tree.write().unwrap();
-            tree.insert(key.clone(), &value)?;
-        }
+            tree.insert(key.clone(), &value)?
+        };
 
         {
             let mut bloom_filter = bloom_filter.write().unwrap();
@@ -181,7 +181,7 @@ impl KeyValueStore {
             let mut logger = logger.lock().unwrap();
             logger.mark_operation_as_completed(&op_log)?;
         }
-        Ok(())
+        Ok(ret)
     }
     fn search_internal(
         tree: &ThreadProtector<BPlusTree>,
@@ -390,29 +390,34 @@ impl KeyValueStore {
         Ok(())
     }
 
-    pub fn insert(&mut self, key: String, value: String) {
+    pub fn insert(&mut self, key: String, value: String) -> ComputedValue<Option<usize>> {
         let tree = Arc::clone(&self.tree);
         let logger = Arc::clone(&self.logger);
         let bloom_filter = Arc::clone(&self.bloom_filter);
         let name = self.name.clone();
 
         ThreadPool::get_instance()
-            .execute(move || {
-                if let Err(e) = Self::insert_internal(&tree, &logger, &bloom_filter, &key, value) {
-                    println!(" had an error");
-                    logger
-                        .lock()
-                        .unwrap()
-                        .log_error(format!("cant insert to {} because {:?}", name, e))
-                        .expect("cant log error in insert");
-                } else {
-                    logger
-                        .lock()
-                        .unwrap()
-                        .log_info(format!("inserted {} into {}", name, key))
-                        .expect("cant log error in insert");
-                };
-            });
+            .compute(move |_| {
+                return match Self::insert_internal(&tree, &logger, &bloom_filter, &key, value) {
+                    Err(e) => {
+                        println!(" had an error");
+                        logger
+                            .lock()
+                            .unwrap()
+                            .log_error(format!("cant insert to {} because {:?}", name, e))
+                            .expect("cant log error in insert");
+                        None
+                    }
+                    Ok(ret) => {
+                                    logger
+                                        .lock()
+                                        .unwrap()
+                                        .log_info(format!("inserted {} into {}", name, key))
+                                        .expect("cant log error in insert");
+                                    Some(ret)
+                                }
+                }
+            },())
     }
     pub fn update(&mut self, key: String, new_value: String) -> ComputedValue<Option<String>> {
         let tree = Arc::clone(&self.tree);

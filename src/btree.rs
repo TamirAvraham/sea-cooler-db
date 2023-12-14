@@ -89,7 +89,6 @@ impl BTreeBuilder {
             let root = pager.new_node()?;
             pager.write_node(&root)?;
             root.page_id
-
         };
 
         let ret = Ok(BPlusTree {
@@ -127,7 +126,6 @@ impl BPlusTree {
     }
     fn save_info_on_file(&self) -> Result<(), Error> {
         let path = format!("{}{}", self.name, FILE_ENDING);
-        
 
         let mut open_options = OpenOptions::new();
         let mut file = open_options
@@ -190,7 +188,7 @@ impl BPlusTree {
         value: &[u8],
         t: usize,
         node_page_id: usize,
-    ) -> InternalResult<bool> {
+    ) -> InternalResult<(bool, usize)> {
         let mut node = pager.read_node(node_page_id)?;
         match node.is_leaf {
             true => {
@@ -198,35 +196,39 @@ impl BPlusTree {
                 node.insert(key, value);
                 return Ok(if node.keys.len() > (2 * t - 1) {
                     node.split(pager, t)?;
-                    true
+                    (true, value)
                 } else {
                     pager.write_node(&node)?;
-                    false
+                    (false, value)
                 });
             }
             false => {
                 let next_node_page_id = node.get(key.clone()).unwrap().clone();
-                if Self::insert_internal(pager, key, value, t, next_node_page_id)? {
+                let (insert_internal, value_location) =
+                    Self::insert_internal(pager, key, value, t, next_node_page_id)?;
+                if insert_internal {
                     node = pager.read_node(node_page_id)?;
                     return Ok(if node.keys.len() > (2 * t - 1) {
                         node.split(pager, t)?;
-                        true
+                        (true, value_location)
                     } else {
-                        false
+                        (false, value_location)
                     });
                 } else {
-                    Ok(false)
+                    Ok((false, value_location))
                 }
             }
         }
     }
-    pub fn insert(&mut self, key: String, value: &[u8]) -> InternalResult<()> {
-        if Self::insert_internal(&mut self.pager, key, value, self.t, self.root_page_id)? {
+    pub fn insert(&mut self, key: String, value: &[u8]) -> InternalResult<usize> {
+        let (insert_internal, ret) =
+            Self::insert_internal(&mut self.pager, key, value, self.t, self.root_page_id)?;
+        if insert_internal {
             let root = self.pager.read_node(self.root_page_id)?;
             self.root_page_id = root.parent_page_id;
             self.save_info_on_file()?;
         }
-        Ok(())
+        Ok(ret)
     }
     fn search_internal(
         key: String,
@@ -250,6 +252,105 @@ impl BPlusTree {
                 return Ok(None);
             }
         }
+    }
+    fn search_node_by_key(
+        key: String,
+        pager: &Pager,
+        node_page_id: usize,
+    ) -> InternalResult<Option<usize>> {
+        let node = pager.read_node(node_page_id)?;
+        match node.is_leaf {
+            true => Ok(if let Some(ret) = node.get(key) {
+                Some(0)
+            } else {
+                None
+            }),
+            false => {
+                if let Some(found_node_page_id) = node.get(key.clone()) {
+                    return Ok(if let Some(result) = Self::search_node_by_key(key, pager, *found_node_page_id)? {
+                        Some(if result==0 { *found_node_page_id } else { result })
+                    }else {
+                        None
+                    });
+                }
+                return Ok(None);
+            }
+        }
+    }
+    fn get_values(
+        start: &String,
+        end: &String,
+        pager: &Pager,
+        node_page_id: usize,
+    ) -> InternalResult<Vec<(String, usize)>> {
+        let node = pager.read_node(node_page_id)?;
+        Ok(match node.is_leaf {
+            true => node
+                .keys
+                .into_iter()
+                .zip(node.values.into_iter())
+                .filter(|(key, _)| start <= key && key <= end)
+                .collect(),
+            false => {
+                let mut ret = vec![];
+
+                if let Some(last_key) = node.keys.last() {
+                    if last_key < end {
+                        if let Some(&node_page_id) =
+                            node.values.get(node.keys.binary_search(last_key).unwrap())
+                        {
+                            ret.extend(Self::get_values(start, end, pager, node_page_id)?);
+                        }
+                    }
+                }
+
+                for (_, v) in node
+                    .keys
+                    .into_iter()
+                    .zip(node.values.into_iter())
+                    .filter(|(key, _)| start <= key && key <= end)
+                {
+                    ret.extend(Self::get_values(start, end, pager, v)?);
+                }
+
+                ret
+            }
+        })
+    }
+    fn find_nodes_intersection(
+        start: String,
+        end: String,
+        root_page_id: usize,
+        pager: &Pager,
+    ) -> InternalResult<usize> {
+        let start_node_id =
+            Self::search_node_by_key(start, pager, root_page_id)?.ok_or(Error::CantGetValue)?;
+        let mut start_node = pager.read_node(start_node_id)?;
+
+        let end_node_id =
+            Self::search_node_by_key(end, pager, root_page_id)?.ok_or(Error::CantGetValue)?;
+        let mut end_node = pager.read_node(end_node_id)?;
+
+        while start_node.parent_page_id != end_node.parent_page_id {
+            start_node = start_node.get_parent(pager)?;
+
+            end_node = start_node.get_parent(pager)?;
+        }
+
+        Ok(start_node.parent_page_id)
+    }
+    fn range_search_internal(
+        start: String,
+        end: String,
+        root_page_id: usize,
+        pager: &Pager,
+    ) -> InternalResult<Vec<(String, usize)>> {
+        let intersection =
+            Self::find_nodes_intersection(start.clone(), end.clone(), root_page_id, pager)?;
+        Self::get_values(&start, &end, pager, intersection)
+    }
+    pub fn range_search(&self, start: String, end: String) -> Result<Vec<(String, usize)>, Error> {
+        Self::range_search_internal(start, end, self.root_page_id, &self.pager)
     }
     pub fn search(&self, key: String) -> InternalResult<Option<Vec<u8>>> {
         Self::search_internal(key, &self.pager, self.root_page_id)
@@ -472,5 +573,66 @@ mod tests {
 
         cleanup_temp_files();
         println!("completed tree tests with t={}", DEFAULT_T);
+    }
+    #[test]
+    fn test_range_search_basic() {
+        let path = "temp".to_string();
+        let mut tree = BTreeBuilder::new()
+            .path(path.clone())
+            .t(2)
+            .name(&path)
+            .build()
+            .unwrap();
+
+        // Insert test data
+        for i in 1..=10 {
+            let key = format!("key_{}", i);
+            let value = format!("value_{}", i);
+            tree.insert(key, value.as_bytes()).unwrap();
+        }
+
+        // Perform a range search
+        let start_key = "key_3".to_string();
+        let end_key = "key_7".to_string();
+        let results = tree.range_search(start_key, end_key).unwrap();
+
+        // Check results
+        let expected_keys: Vec<String> = (3..=7).map(|i| format!("key_{}", i)).collect();
+        let expected_values: Vec<usize> = (3..=7).map(|i| i).collect();
+        assert_eq!(results.len(), expected_values.len());
+        for ((key, value), expected_key) in results.iter().zip(expected_keys.iter()) {
+            assert_eq!(key, expected_key);
+        }
+    }
+
+    #[test]
+    fn test_range_search_edge_cases() {
+        let path = "temp".to_string();
+        let mut tree = BTreeBuilder::new()
+            .path(path.clone())
+            .t(2)
+            .name(&path)
+            .build()
+            .unwrap();
+
+        // Insert test data
+        for i in 1..=10 {
+            let key = format!("key_{}", i);
+            let value = format!("value_{}", i);
+            tree.insert(key, value.as_bytes()).unwrap();
+        }
+
+        // Test empty range
+        let results = tree
+            .range_search("key_15".to_string(), "key_20".to_string())
+            .unwrap();
+        assert!(results.is_empty());
+
+        // Test range with single element
+        let results = tree
+            .range_search("key_5".to_string(), "key_5".to_string())
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, "key_5");
     }
 }

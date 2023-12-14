@@ -293,7 +293,7 @@ impl JsonSerializer {
     pub fn serialize(json: JsonObject) -> String {
         Self::serialize_with_spacer(json, 0, true)
     }
-    pub fn serialize_with_spacer(json: JsonObject, spacer: u8, new_lines: bool) -> String {
+    fn serialize_with_spacer(json: JsonObject, spacer: u8, new_lines: bool) -> String {
         let mut ret = "{".to_string();
         if new_lines {
             ret.push('\n')
@@ -341,6 +341,14 @@ impl IntoIterator for JsonObject {
         self.map.into_iter()
     }
 }
+impl Index<&String> for JsonObject {
+    type Output = JsonData;
+
+    fn index(&self, key: &String) -> &Self::Output {
+        self.map.get(key).expect("Key not found")
+    }
+}
+
 impl Index<String> for JsonObject {
     type Output = JsonData;
 

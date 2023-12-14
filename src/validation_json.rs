@@ -12,6 +12,7 @@ pub enum JsonValidationError {
 pub enum JsonConstraint {
     Nullable,
     ValueConstraint(JsonData, Ordering),
+    Unique,
     Any,
 }
 
@@ -33,8 +34,6 @@ impl JsonValidationProperty {
     }
     pub fn constraint(mut self, constraint: JsonConstraint) -> Self {
         match &constraint {
-            JsonConstraint::Nullable => {}
-            JsonConstraint::Any => {}
             JsonConstraint::ValueConstraint(data, order) => {
                 assert_eq!(self.data_type, data.get_type());
                 match self.data_type {
@@ -44,6 +43,7 @@ impl JsonValidationProperty {
                     _ => {}
                 }
             }
+            _=> {}
         }
         self.constraints.insert(constraint);
         self
@@ -56,6 +56,12 @@ impl ValidationJson {
     pub fn add(mut self, prop: JsonValidationProperty) -> Self {
         self.props.push(prop);
         self
+    }
+    pub fn get_all_props(&self) -> &Vec<JsonValidationProperty>{
+        &self.props
+    }
+    pub fn get_all_unique_props(&self) -> Vec<&JsonValidationProperty>{
+        self.props.iter().filter(|&x| x.constraints.contains(&JsonConstraint::Unique)).collect::<Vec<&JsonValidationProperty>>()
     }
     fn comp_values_by_ordering<T: PartialEq + PartialOrd>(v1: T, v2: T, order: &Ordering) -> bool {
         match order {
@@ -104,6 +110,9 @@ impl ValidationJson {
                             }
                             JsonConstraint::Any => {
                                 // all ready checked it in the if above
+                            },
+                            JsonConstraint::Unique => {
+                                //checked at the storage level
                             }
                             JsonConstraint::ValueConstraint(constraint_value, order) => {
                                 if !Self::comp_values(value, constraint_value, order) {

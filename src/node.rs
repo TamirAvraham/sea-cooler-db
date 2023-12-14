@@ -131,6 +131,23 @@ impl Node {
             self.values.get(i)
         }
     }
+    pub fn location(&self,key: &String) -> Option<usize> {
+        let mut i = 0;
+        while i < self.keys.len() && &self.keys[i] < key {
+            i += 1;
+        }
+
+        if if self.is_leaf {
+            i >= self.keys.len()
+        } else {
+            i > self.keys.len()
+        } 
+        {
+            None
+        } else {
+            Some(i)
+        }
+    }
     pub fn update(&mut self, key: String, value: usize) {
         let mut i = 0;
         while i < self.keys.len() && self.keys[i] < key {
