@@ -35,13 +35,13 @@ fn pad_text(mut text:String)->String{
 pub fn encrypt(key:&String,text:String)->Vec<u8>{
     let key=pad_key(key);
     let text=pad_text(text);
-    aes128::encrypt_AES128(&key, text.as_bytes())
+    aes128::encrypt_aes128(&key, text.as_bytes())
 }
 
 
 
 pub fn decrypt(key:&String,encrypted:Vec<u8>)->String{
-    String::from_utf8(aes128::decrypt_AES128(&pad_key(key), &encrypted)).unwrap().trim_end().to_string()
+    String::from_utf8(aes128::decrypt_aes128(&pad_key(key), &encrypted)).unwrap().trim_end().to_string()
 }
 static mut SINGLETON:Option<RwLock<EncryptionService>>=None;
 static INIT:Once=Once::new();

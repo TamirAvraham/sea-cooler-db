@@ -3,6 +3,7 @@ use std::{
     io::{Read, Seek, Write},
     path::Path,
 };
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     error::{map_err, Error, InternalResult},
@@ -230,26 +231,48 @@ impl BPlusTree {
         }
         Ok(ret)
     }
+    fn search_for_value_pointer(
+        key: String,
+        pager: &Pager,
+        node_page_id: usize,
+    ) -> InternalResult<Option<(String,usize)>> {
+        let node = pager.read_node(node_page_id)?;
+        return match node.is_leaf {
+            true => {
+                if let Some(value_location) = node.get(key.clone()) {
+                    Ok(Some((key, *value_location)))
+                } else {
+                    Ok(None)
+                }
+            }
+            false => {
+                if let Some(node_page_id) = node.get(key.clone()) {
+                    return Self::search_for_value_pointer(key, pager, *node_page_id);
+                }
+                Ok(None)
+            }
+        }
+    }
     fn search_internal(
         key: String,
         pager: &Pager,
         node_page_id: usize,
     ) -> InternalResult<Option<Vec<u8>>> {
         let node = pager.read_node(node_page_id)?;
-        match node.is_leaf {
+        return match node.is_leaf {
             true => {
                 if let Some(value_location) = node.get(key) {
                     let value = pager.read_value(*value_location)?;
-                    return Ok(Some(value));
+                    Ok(Some(value))
                 } else {
-                    return Ok(None);
+                    Ok(None)
                 }
             }
             false => {
                 if let Some(node_page_id) = node.get(key.clone()) {
                     return Self::search_internal(key, pager, *node_page_id);
                 }
-                return Ok(None);
+                Ok(None)
             }
         }
     }
@@ -295,9 +318,9 @@ impl BPlusTree {
                 let mut ret = vec![];
 
                 if let Some(last_key) = node.keys.last() {
-                    if last_key < end {
+                    if last_key <= end {
                         if let Some(&node_page_id) =
-                            node.values.get(node.keys.binary_search(last_key).unwrap())
+                            node.values.last()
                         {
                             ret.extend(Self::get_values(start, end, pager, node_page_id)?);
                         }
@@ -344,13 +367,27 @@ impl BPlusTree {
         end: String,
         root_page_id: usize,
         pager: &Pager,
-    ) -> InternalResult<Vec<(String, usize)>> {
+    ) -> InternalResult<HashSet<(String, usize)>> {
         let intersection =
-            Self::find_nodes_intersection(start.clone(), end.clone(), root_page_id, pager)?;
-        Self::get_values(&start, &end, pager, intersection)
+            match Self::find_nodes_intersection(start.clone(), end.clone(), root_page_id, pager) {
+                Ok(ret) => Ok(ret),
+                Err(err) => if err==Error::CantGetValue {
+                    return Ok(HashSet::new())
+                }else {
+                    Err(err)
+                }
+            }?;
+        Ok(Self::get_values(&start, &end, pager, intersection)?.into_iter()
+            .collect::<HashSet<(String,usize)>>())
     }
     pub fn range_search(&self, start: String, end: String) -> Result<Vec<(String, usize)>, Error> {
-        Self::range_search_internal(start, end, self.root_page_id, &self.pager)
+        if start==end {
+            return Ok(match Self::search_for_value_pointer(start, &self.pager,self.root_page_id)? {
+                None => {vec![]}
+                Some(ret) => {vec![ret]}
+            });
+        }
+        Ok(Self::range_search_internal(start, end, self.root_page_id, &self.pager)?.into_iter().collect::<Vec<(String, usize)>>())
     }
     pub fn search(&self, key: String) -> InternalResult<Option<Vec<u8>>> {
         Self::search_internal(key, &self.pager, self.root_page_id)
@@ -579,7 +616,7 @@ mod tests {
     #[test]
     fn test_default_t_tree_just_insert_and_search() {
         let path="temp".to_string();
-        let mut tree=BTreeBuilder::new().path(path.clone()).t(DEFAULT_T).build().unwrap();
+        let mut tree=BTreeBuilder::new().name(&path.clone()).path(path).t(DEFAULT_T).build().unwrap();
         let range=DEFAULT_T*100;
         (1..=range).for_each(|i| {
             println!("inserting i:{}",i);
@@ -646,10 +683,8 @@ mod tests {
         // Check results
         let expected_keys: Vec<String> = (3..=7).map(|i| format!("key_{}", i)).collect();
         let expected_values: Vec<usize> = (3..=7).map(|i| i).collect();
-        assert_eq!(results.len(), expected_values.len());
-        for ((key, value), expected_key) in results.iter().zip(expected_keys.iter()) {
-            assert_eq!(key, expected_key);
-        }
+        assert_eq!(results.len(), expected_values.len(),"results {:?}, expected {:?}",results,expected_keys);
+        assert!(results.iter().all(|(x,_)| expected_keys.contains(x)))
     }
 
     #[test]

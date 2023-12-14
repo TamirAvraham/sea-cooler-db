@@ -48,10 +48,10 @@ where
     a
 }
 
-fn key_schedule_AES128(key_bytes: &[u8;16]) -> [[u8;4];44] {
+fn key_schedule_aes128(key_bytes: &[u8;16]) -> [[u8;4];44] {
     let mut original_key = [[0u8;4];4];
     let mut expanded_key = [[0u8;4];44];
-    let N = 4;
+    let n = 4;
 
     for i in 0..16 {
         original_key[i/4][i%4] = key_bytes[i];
@@ -59,16 +59,16 @@ fn key_schedule_AES128(key_bytes: &[u8;16]) -> [[u8;4];44] {
 
     for i in 0..44 { // 11 rounds, i in 0..4*rounds-1
 
-        if i < N {
+        if i < n {
             expanded_key[i] = original_key[i];
-        } else if  i >= N && i % N == 0 {
+        } else if  i >= n&& i % n == 0 {
 
             let mut rcon = [0u8;4];
-            rcon[0] = RC[i/N];
-            expanded_key[i] = xor_words(&xor_words(&expanded_key[i-N], &sub_word(&rot_word(&expanded_key[i-1]))), &rcon);
+            rcon[0] = RC[i/n];
+            expanded_key[i] = xor_words(&xor_words(&expanded_key[i-n], &sub_word(&rot_word(&expanded_key[i-1]))), &rcon);
 
         } else {
-            expanded_key[i] = xor_words(&expanded_key[i-N],&expanded_key[i-1]);
+            expanded_key[i] = xor_words(&expanded_key[i-n],&expanded_key[i-1]);
         }
         
     }
@@ -219,11 +219,11 @@ fn inv_mix_columns(state: &mut [[u8;4];4]) {
     }
 }
 
-pub fn encrypt_AES128(key_bytes: &[u8;16], bytes: &[u8]) -> Vec<u8> {
+pub fn encrypt_aes128(key_bytes: &[u8;16], bytes: &[u8]) -> Vec<u8> {
     if bytes.len()%16!=0 {
         panic!("Input is not multiple of 16 bytes!");
     }
-    let expanded_key=key_schedule_AES128(key_bytes);
+    let expanded_key=key_schedule_aes128(key_bytes);
     let mut result = vec![0u8; bytes.len()];
 
     for i in 0..bytes.len()/16 {
@@ -231,7 +231,7 @@ pub fn encrypt_AES128(key_bytes: &[u8;16], bytes: &[u8]) -> Vec<u8> {
         for j in 0..16 {
             block[j] = bytes[i*16 + j];
         }
-        block = encrypt_block_AES128(&expanded_key, &block);
+        block = encrypt_block_aes128(&expanded_key, &block);
         for j in 0..16 {
             result[i*16 + j] = block[j];
         }
@@ -240,7 +240,7 @@ pub fn encrypt_AES128(key_bytes: &[u8;16], bytes: &[u8]) -> Vec<u8> {
     return result;
 }
 
-fn encrypt_block_AES128(expanded_key: &[[u8; 4]; 44], bytes: &[u8;16]) -> [u8;16] {
+fn encrypt_block_aes128(expanded_key: &[[u8; 4]; 44], bytes: &[u8;16]) -> [u8;16] {
     let mut result = [0u8;16];
 
     let mut state = [[0u8;4];4];
@@ -270,11 +270,11 @@ fn encrypt_block_AES128(expanded_key: &[[u8; 4]; 44], bytes: &[u8;16]) -> [u8;16
     return result;
 }
 
-pub fn decrypt_AES128(key_bytes: &[u8;16], bytes: &[u8]) -> Vec<u8> {
+pub fn decrypt_aes128(key_bytes: &[u8;16], bytes: &[u8]) -> Vec<u8> {
     if bytes.len()%16!=0 {
         panic!("Input is not multiple of 16 bytes!");
     }
-    let expanded_key=key_schedule_AES128(key_bytes);
+    let expanded_key=key_schedule_aes128(key_bytes);
     let mut result = vec![0u8; bytes.len()];
 
     for i in 0..bytes.len()/16 {
@@ -282,7 +282,7 @@ pub fn decrypt_AES128(key_bytes: &[u8;16], bytes: &[u8]) -> Vec<u8> {
         for j in 0..16 {
             block[j] = bytes[i*16 + j];
         }
-        block = decrypt_block_AES128(&expanded_key, &block);
+        block = decrypt_block_aes128(&expanded_key, &block);
         for j in 0..16 {
             result[i*16 + j] = block[j];
         }
@@ -291,7 +291,7 @@ pub fn decrypt_AES128(key_bytes: &[u8;16], bytes: &[u8]) -> Vec<u8> {
     return result;
 }
 
-fn decrypt_block_AES128(expanded_key: &[[u8; 4]; 44], bytes: &[u8;16]) -> [u8;16] {
+fn decrypt_block_aes128(expanded_key: &[[u8; 4]; 44], bytes: &[u8;16]) -> [u8;16] {
     let mut result = [0u8;16];
 
     let mut state = [[0u8;4];4];
@@ -335,9 +335,9 @@ mod tests{
             0x4f, 0x3c,
         ];
 
-        let new_text=encrypt_AES128(&key, text);
+        let new_text=encrypt_aes128(&key, text);
 
-        let new_text=decrypt_AES128(&key, &new_text);
+        let new_text=decrypt_aes128(&key, &new_text);
 
         assert_eq!(new_text,text.to_owned())
     }
