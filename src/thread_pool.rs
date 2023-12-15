@@ -22,7 +22,7 @@ impl Worker {
     pub fn new(id: usize, receiver: Arc<Mutex<Receiver<Message>>>) -> Self {
         let thread = thread::spawn(move || loop {
             // println!("thread {} is empty",id);
-            let message = receiver.lock().unwrap().recv().unwrap();
+            let message = receiver.lock().expect("cant get receiver").recv().expect("cant recv task at thread pool");
             // println!("thread {} got a message",id);
             match message {
                 Message::Close => break,

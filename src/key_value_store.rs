@@ -167,7 +167,7 @@ impl KeyValueStore {
             logger.log_insert_operation(key, &value)?
         };
 
-        let ret={
+        let ret = {
             let mut tree = tree.write().unwrap();
             tree.insert(key.clone(), &value)?
         };
@@ -189,7 +189,6 @@ impl KeyValueStore {
         logger: &ThreadGuard<Logger>,
         key: &String,
     ) -> KvResult<Option<String>> {
-        println!("started search for {}",key);
         if key.len() > MAX_KEY_SIZE {
             {
                 let mut logger = logger.lock().unwrap();
@@ -202,34 +201,22 @@ impl KeyValueStore {
             }
             return Err(KeyValueError::KeyToLarge);
         }
-        println!("checked key size");
 
         let contains = {
-            println!("locking bloom filter in {}",key);
             let bloom_filter = bloom_filter.read().unwrap();
-            println!("locked bloom filter in {}",key);
             bloom_filter.contains(&key)
         };
-        
 
         Ok(if contains {
             let op_log = {
-                println!("locking logger in {} to log op",key);
                 let mut logger = logger.lock().unwrap();
-                println!("locked logger in {} logging op",key);
 
                 logger.log_select_operation(key)?
-                
             };
-            println!("logged search for key {}",key);
-            println!("started search in tree fro key {}",key);
             let search = {
-                println!("locking tree in {}",key);
                 let tree = tree.read().unwrap();
-                println!("locked tree in {}",key);
                 tree.search(key.clone())
             };
-            println!("got result for search {}:{:?}",key,search);
             let ret = if let Some(ret_encrypted) = search? {
                 Some(
                     EncryptionService::get_instance()
@@ -240,11 +227,8 @@ impl KeyValueStore {
             } else {
                 None
             };
-            println!("decrypted the value got {:?}" ,ret);
             {
-                println!("locking logger in {}",key);
                 let mut logger = logger.lock().unwrap();
-                println!("locked logger in {}",key);
 
                 logger.mark_operation_as_completed(&op_log)?;
             }
@@ -396,8 +380,8 @@ impl KeyValueStore {
         let bloom_filter = Arc::clone(&self.bloom_filter);
         let name = self.name.clone();
 
-        ThreadPool::get_instance()
-            .compute(move |_| {
+        ThreadPool::get_instance().compute(
+            move |_| {
                 return match Self::insert_internal(&tree, &logger, &bloom_filter, &key, value) {
                     Err(e) => {
                         println!(" had an error");
@@ -409,15 +393,17 @@ impl KeyValueStore {
                         None
                     }
                     Ok(ret) => {
-                                    logger
-                                        .lock()
-                                        .unwrap()
-                                        .log_info(format!("inserted {} into {}", name, key))
-                                        .expect("cant log error in insert");
-                                    Some(ret)
-                                }
-                }
-            },())
+                        logger
+                            .lock()
+                            .unwrap()
+                            .log_info(format!("inserted {} into {}", name, key))
+                            .expect("cant log error in insert");
+                        Some(ret)
+                    }
+                };
+            },
+            (),
+        )
     }
     pub fn update(&mut self, key: String, new_value: String) -> ComputedValue<Option<String>> {
         let tree = Arc::clone(&self.tree);
@@ -453,12 +439,12 @@ impl KeyValueStore {
         let bloom_filter = Arc::clone(&self.bloom_filter);
         let name = self.name.clone();
         println!("moving code to threadpool");
-        let (send,ret)=std::sync::mpsc::channel();
+        let (send, ret) = std::sync::mpsc::channel();
 
-        ThreadPool::get_instance().execute(
-            move || {
-                println!("calling search internal for {}",key);
-                send.send(match Self::search_internal(&tree, &bloom_filter, &logger, &key) {
+        ThreadPool::get_instance().execute(move || {
+            println!("calling search internal for {}", key);
+            send.send(
+                match Self::search_internal(&tree, &bloom_filter, &logger, &key) {
                     Ok(ret) => {
                         logger
                             .lock()
@@ -475,10 +461,10 @@ impl KeyValueStore {
                             .expect("cant log error in insert");
                         None
                     }
-                }).expect("cant send back result of search");
-            }
-            
-        );
+                },
+            )
+            .expect("cant send back result of search");
+        });
         ComputedValue::new(ret)
     }
     pub fn delete(&mut self, key: String) {
@@ -487,19 +473,15 @@ impl KeyValueStore {
         let bloom_filter = Arc::clone(&self.bloom_filter);
         let overwatch = Arc::clone(&self.overwatch);
         let name = self.name.clone();
-        ThreadPool::get_instance()
-            
-            .execute(move || {
-                if let Err(e) =
-                    Self::delete_internal(&tree, &bloom_filter, &logger, &overwatch, &key)
-                {
-                    logger
-                        .lock()
-                        .unwrap()
-                        .log_error(format!("cant insert to {} because {:?}", name, e))
-                        .expect("cant log error in insert");
-                };
-            });
+        ThreadPool::get_instance().execute(move || {
+            if let Err(e) = Self::delete_internal(&tree, &bloom_filter, &logger, &overwatch, &key) {
+                logger
+                    .lock()
+                    .unwrap()
+                    .log_error(format!("cant insert to {} because {:?}", name, e))
+                    .expect("cant log error in insert");
+            };
+        });
     }
     pub fn erase(self) {
         fs::remove_file(&format!("{}{}", self.name, OPERATION_LOGGER_FILE_ENDING)).unwrap(); // op logger
@@ -596,25 +578,26 @@ mod tests {
     fn test_kv_crud() {
         let name = "test".to_string();
         let mut kv = KeyValueStore::new(name);
-
+        let mut insert_results=vec![];
         for i in 0..10 {
-            kv.insert(format!("key_{}", i), format!("value_{}", i));
+            insert_results.push(kv.insert(format!("key_{}", i), format!("value_{}", i)));
         }
+        insert_results.into_iter().for_each(|x| assert!(x.get().is_some()));
         println!("finished inserts");
 
         let mut search_results = vec![];
         for i in 0..10 {
-            println!("started search for {}",i);
+            println!("started search for {}", i);
             let result = kv.search(format!("key_{}", i));
-            println!("queued search for {}",i);
+            println!("queued search for {}", i);
             search_results.push(result);
-            println!("add search for {} to handle collection",i);
+            println!("add search for {} to handle collection", i);
         }
         println!("finished queueing the searches");
         search_results.into_iter().enumerate().for_each(|(i, res)| {
-            println!("checking if index {} is ok",i);
+            println!("checking if index {} is ok", i);
             assert!(res.get() == Some(format!("value_{}", i)));
-            println!("index {} is ok",i);
+            println!("index {} is ok", i);
         });
         println!("finished searches");
 
@@ -623,29 +606,45 @@ mod tests {
         for i in 0..10 {
             let result = kv.update(format!("key_{}", i), format!("value_{}", i + 1));
             old_values.push(result);
+        }
+        old_values.into_iter().enumerate().for_each(|(i, res)| {
+            assert_eq!(res.get(), Some(format!("value_{}", i)));
+        });
+        for i in 0..10 {
             let result = kv.search(format!("key_{}", i));
             search_results.push(result);
         }
-        old_values.into_iter().enumerate().for_each(|(i, res)| {
-            assert!(res.get() == Some(format!("value_{}", i)));
-        });
         search_results.into_iter().enumerate().for_each(|(i, res)| {
-            assert!(res.get() == Some(format!("value_{}", i + 1)));
+            assert_eq!(res.get(), Some(format!("value_{}", i + 1)));
         });
         println!("finished update");
 
-        // todo merge after b tree bug fixes then add tests for large value counts + delete tests
+        for i in 0..10{
+            kv.delete(format!("key_{}", i));
+        }
+        let mut search_results = vec![];
+
+        for i in 0..10 {
+            search_results.push(kv.search(format!("key_{}",i)));
+        }
+        search_results.into_iter().enumerate().for_each(|(i, res)| {
+            assert_eq!(res.get(), None);
+        });
         kv.erase();
     }
     #[test]
     fn test_kv_insert() {
         let name = "test".to_string();
         let mut kv = KeyValueStore::new(name);
+        let mut results = vec![];
 
         for i in 0..1000 {
-            println!("inserting i:{}",i);
-            kv.insert(format!("key_{}", i), format!("value_{}", i));
+            println!("inserting i:{}", i);
+            results.push(kv.insert(format!("key_{}", i), format!("value_{}", i)));
         }
+
+        results.into_iter().for_each(|x| assert!(x.get().is_some()));
+
         println!("finished inserts");
         kv.erase()
     }
