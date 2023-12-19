@@ -4,6 +4,7 @@ use std::{
     sync::{Arc, Mutex, RwLock, RwLockReadGuard},
 };
 const BLOOM_FILTER_PATH: &str = "bloom_filter.dat";
+const MIN_INSERTS_TO_WRITE_BLOOM_FILTER_ON_DISK:usize=50;
 use crate::{
     bloom_filter::{self, BloomFilter, M},
     btree::{self, BPlusTree, DEFAULT_T, FILE_ENDING, NODES_FILE_ENDING, VALUES_FILE_ENDING},
@@ -32,6 +33,7 @@ pub struct KeyValueStore {
     overwatch: ThreadGuard<Overwatch<String>>,
     tree: ThreadProtector<BPlusTree>,
     bloom_filter: ThreadProtector<BloomFilter>,
+    insert_count:ThreadGuard<usize>
 }
 impl From<LoggerError> for KeyValueError {
     fn from(item: LoggerError) -> Self {
@@ -66,15 +68,17 @@ impl KeyValueStore {
             .read(true)
             .open(format!("{}.{}", name, BLOOM_FILTER_PATH))?;
         file.read_exact(&mut bloom_filter_data)?;
-
+        println!("read bloom filter array all data is false? {}",bloom_filter_data.iter().all(|&x| x==0x00).to_string());
         let mut bit_array = vec![false; M as usize];
-        for byte in bloom_filter_data {
-            match byte {
-                0x0 => bit_array.push(false),
-                0x01 => bit_array.push(true),
-                _ => return Err(KeyValueError::CorruptedBloomFilter),
-            }
+
+        for (&byte,bit) in bloom_filter_data.iter().zip(bit_array.iter_mut()) {
+            *bit=match byte {
+                0x00 => Ok(false),
+                0x01 => Ok(true),
+                _ => Err(KeyValueError::CorruptedBloomFilter),
+            }?;
         }
+
         Ok(BloomFilter { bit_array })
     }
     fn load(name: String) -> KvResult<Self> {
@@ -93,9 +97,13 @@ impl KeyValueStore {
             overwatch: Arc::new(Mutex::new(Overwatch::new())),
             bloom_filter: Arc::new(RwLock::new(
                 Self::load_bloom_filter_from_file(&name).or_else(
-                    |_| -> Result<BloomFilter, KeyValueError> { Ok(BloomFilter::new()) },
+                    |e| -> Result<BloomFilter, KeyValueError> {
+                        println!("had an error loading the bloom filter {:?}",e);
+                        Ok(BloomFilter::new())
+                    },
                 )?,
             )),
+            insert_count:Arc::new(Mutex::new(0)),
         });
 
         ret.as_ref()
@@ -110,18 +118,18 @@ impl KeyValueStore {
     pub fn new(name: String) -> Self {
         if let Ok(mut ret) = Self::load(name) {
             ret.recover();
-            ret.save_bloom_filter_on_file().expect("cant create kv ");
+            Self::save_bloom_filter_on_file(ret.bloom_filter.clone(), &ret.name).expect("cant create kv ");
             ret
         } else {
             panic!("cant create kv ")
         }
     }
-    fn save_bloom_filter_on_file(&self) -> Result<(), KeyValueError> {
+    fn save_bloom_filter_on_file(bloom_filter:ThreadProtector<BloomFilter>,name:&String) -> Result<(), KeyValueError> {
         let bloom_filter_data_as_vec_u8;
 
         //critical section
         {
-            let bloom_filter = self.bloom_filter.read().unwrap();
+            let bloom_filter = bloom_filter.read().unwrap();
             bloom_filter_data_as_vec_u8 = bloom_filter
                 .get_array()
                 .iter()
@@ -130,7 +138,7 @@ impl KeyValueStore {
         }
 
         fs::write(
-            format!("{}.{}", self.name, BLOOM_FILTER_PATH),
+            format!("{}.{}", name, BLOOM_FILTER_PATH),
             &bloom_filter_data_as_vec_u8,
         )
         .map_err(|e| KeyValueError::FileError(e))
@@ -140,6 +148,7 @@ impl KeyValueStore {
         tree: &Arc<RwLock<BPlusTree>>,
         logger: &ThreadGuard<Logger>,
         bloom_filter: &Arc<RwLock<BloomFilter>>,
+        insert_count: &ThreadGuard<usize>,
         key: &String,
         value: String,
     ) -> KvResult<usize> {
@@ -175,6 +184,7 @@ impl KeyValueStore {
         {
             let mut bloom_filter = bloom_filter.write().unwrap();
             bloom_filter.insert(&key);
+            *(insert_count.lock().unwrap())+=1;
         }
 
         {
@@ -237,6 +247,62 @@ impl KeyValueStore {
         } else {
             None
         })
+    }
+    fn range_scan_internal(
+        tree: &ThreadProtector<BPlusTree>,
+        logger: &ThreadGuard<Logger>,
+        start: &String,
+        end:&String,
+    ) -> KvResult<Vec<String>> {
+        if start.len() > MAX_KEY_SIZE {
+            {
+                let mut logger = logger.lock().unwrap();
+                logger.log_error(format!(
+                    "key:{} has a len of {} and it needs to be less then {}",
+                    end,
+                    end.len(),
+                    MAX_KEY_SIZE
+                ))?;
+            }
+            return Err(KeyValueError::KeyToLarge);
+        }
+        if end.len() > MAX_KEY_SIZE {
+            {
+                let mut logger = logger.lock().unwrap();
+                logger.log_error(format!(
+                    "key:{} has a len of {} and it needs to be less then {}",
+                    end,
+                    end.len(),
+                    MAX_KEY_SIZE
+                ))?;
+            }
+            return Err(KeyValueError::KeyToLarge);
+        }
+
+
+        Ok({
+            let search = {
+                let tree = tree.read().unwrap();
+                tree.range_search(start.clone(),end.clone())?
+            };
+            let ret={
+                let mut ret=search.into_iter().map(|(key,value_location)| {
+                    let pager={
+                        let tree=tree.read().unwrap();
+                        tree.pager.read_value(value_location)
+                    };
+                    if let Ok(value) = pager {
+                        EncryptionService::get_instance().read().unwrap().decrypt(value, &key)
+                    } else {
+                        "".to_string()
+                    }
+                } ).collect::<Vec<String>>();
+                ret.retain(|s| s.is_empty());
+                ret
+            };
+
+            ret}
+        )
     }
     fn update_internal(
         logger: &ThreadGuard<Logger>,
@@ -379,10 +445,11 @@ impl KeyValueStore {
         let logger = Arc::clone(&self.logger);
         let bloom_filter = Arc::clone(&self.bloom_filter);
         let name = self.name.clone();
+        let insert_count=Arc::clone(&self.insert_count);
 
-        ThreadPool::get_instance().compute(
+        let ret=ThreadPool::get_instance().compute(
             move |_| {
-                return match Self::insert_internal(&tree, &logger, &bloom_filter, &key, value) {
+                return match Self::insert_internal(&tree, &logger, &bloom_filter, &insert_count, &key, value) {
                     Err(e) => {
                         println!(" had an error");
                         logger
@@ -403,7 +470,33 @@ impl KeyValueStore {
                 };
             },
             (),
-        )
+        );
+
+        let logger = Arc::clone(&self.logger);
+        let bloom_filter = Arc::clone(&self.bloom_filter);
+        let name = self.name.clone();
+        let insert_count=Arc::clone(&self.insert_count);
+
+        ThreadPool::get_instance().execute(move || {
+            let write_to_file={
+                let mut lock=insert_count.lock().unwrap();
+                let ret=*lock>=MIN_INSERTS_TO_WRITE_BLOOM_FILTER_ON_DISK;
+                *lock=0;
+                ret
+            };
+            if write_to_file{
+                if let Err(e) = Self::save_bloom_filter_on_file(bloom_filter, &name) {
+                    println!("had an error while trying to update bloom filter");
+                    logger
+                        .lock()
+                        .unwrap()
+                        .log_error(format!("cant insert to {} because {:?}", name, e))
+                        .expect("cant log error in insert");
+                }
+            }
+
+        });
+        ret
     }
     pub fn update(&mut self, key: String, new_value: String) -> ComputedValue<Option<String>> {
         let tree = Arc::clone(&self.tree);
@@ -438,11 +531,9 @@ impl KeyValueStore {
         let logger = Arc::clone(&self.logger);
         let bloom_filter = Arc::clone(&self.bloom_filter);
         let name = self.name.clone();
-        println!("moving code to threadpool");
         let (send, ret) = std::sync::mpsc::channel();
 
         ThreadPool::get_instance().execute(move || {
-            println!("calling search internal for {}", key);
             send.send(
                 match Self::search_internal(&tree, &bloom_filter, &logger, &key) {
                     Ok(ret) => {
@@ -466,6 +557,33 @@ impl KeyValueStore {
             .expect("cant send back result of search");
         });
         ComputedValue::new(ret)
+    }
+    pub fn range_scan(&self, start: String,end:String) -> ComputedValue<Vec<String>> {
+        let tree = Arc::clone(&self.tree);
+        let logger = Arc::clone(&self.logger);
+        let name = self.name.clone();
+
+        ThreadPool::get_instance().compute(move |_| {
+                match Self::range_scan_internal(&tree,  &logger, &start,&end) {
+                    Ok(ret) => {
+                        logger
+                            .lock()
+                            .unwrap()
+                            .log_info(format!("got range {}..{} in {}", start,end, name))
+                            .expect("cant log error in insert");
+                        ret
+                    }
+                    Err(e) => {
+                        logger
+                            .lock()
+                            .unwrap()
+                            .log_error(format!("cant find range {}..{} in {} because {:?}", start,end, name, e))
+                            .expect("cant log error in insert");
+                        Vec::new()
+                    }
+                }
+        },())
+
     }
     pub fn delete(&mut self, key: String) {
         let tree = Arc::clone(&self.tree);
@@ -504,6 +622,11 @@ impl KeyValueStore {
     }
 }
 
+impl Drop for KeyValueStore {
+    fn drop(&mut self) {
+        Self::save_bloom_filter_on_file(self.bloom_filter.clone(), &self.name).expect("cant update bloom filter on file");
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -521,13 +644,14 @@ mod tests {
         let logger = Arc::clone(&kv.logger);
         let bloom_filter = Arc::clone(&kv.bloom_filter);
         let overwatch = Arc::clone(&kv.overwatch);
-
+        let insert_counter=Arc::clone(&kv.insert_count);
         for i in 0..10 {
             println!("inserting {}", i);
             KeyValueStore::insert_internal(
                 &tree,
                 &logger,
                 &bloom_filter,
+                &insert_counter ,
                 &format!("key_{}", i),
                 format!("value_{}", i),
             )

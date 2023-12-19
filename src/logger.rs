@@ -591,13 +591,13 @@ impl Restorer {
         );
 
         copy_file(
-            &nodes_path,
             &format!("{}{}{}", self.name, VALUES_FILE_ENDING, FILE_ENDING),
+            &nodes_path,
         )
         .map_err(|_| LoggerError::CantRestoreFilesFromBackup)?;
         copy_file(
-            &values_path,
             &format!("{}{}{}", self.name, NODES_FILE_ENDING, FILE_ENDING),
+            &values_path
         )
         .map_err(|_| LoggerError::CantRestoreFilesFromBackup)?;
         Ok(())
@@ -615,6 +615,7 @@ impl Logger {
         let op = self.op_logger.log_operation(op)?;
         if self.restorer.should_update(op.id) {
             self.restorer.update(&self.op_logger)?;
+            self.save_changes_to_config_file()?;
         }
         Ok(op)
     }

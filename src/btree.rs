@@ -66,21 +66,35 @@ impl BTreeBuilder {
         }
 
         let mut file_options = OpenOptions::new();
-        let pager_file_options = file_options.write(true).create(true).read(true);
+        file_options.write(true).create(true).read(true);
 
-        let nodes_file = pager_file_options
+        let nodes_file = file_options
             .open(self.path.clone() + NODES_FILE_ENDING + FILE_ENDING)
             .map_err(|e| {
                 println!("in nodes file{:?}", e);
                 Error::FileError
             })?;
+        let values_path =self.path.clone() + VALUES_FILE_ENDING + FILE_ENDING;
+        let values_file = if Path::new(&values_path).exists(){
 
-        let values_file = pager_file_options
-            .open(self.path.clone() + VALUES_FILE_ENDING + FILE_ENDING)
-            .map_err(|e| {
-                println!("in values file{:?}", e);
-                Error::FileError
-            })?;
+            let mut file_options = OpenOptions::new();
+            file_options.read(true).write(true);
+            file_options
+                .open(values_path)
+                .map_err(|e| {
+                    println!("in values file{:?}", e);
+                    Error::FileError
+                })?
+        } else {
+            let mut file_options = OpenOptions::new();
+            file_options.write(true).create(true).read(true);
+            file_options
+                .open(values_path)
+                .map_err(|e| {
+                    println!("in values file{:?}", e);
+                    Error::FileError
+                })?
+        };
 
         let mut pager = Pager::new(nodes_file, values_file, DEFAULT_CACHE_SIZE);
 
@@ -107,7 +121,7 @@ impl BTreeBuilder {
 pub struct BPlusTree {
     name: String,
     t: usize,
-    pager: Pager,
+    pub pager: Pager,
     root_page_id: usize,
 }
 
