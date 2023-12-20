@@ -4,6 +4,7 @@ use std::{
     path::Path,
 };
 use std::collections::{HashMap, HashSet};
+use std::panic::set_hook;
 
 use crate::{
     error::{map_err, Error, InternalResult},
@@ -294,17 +295,18 @@ impl BPlusTree {
         key: String,
         pager: &Pager,
         node_page_id: usize,
+        root_is_a_leaf:bool
     ) -> InternalResult<Option<usize>> {
         let node = pager.read_node(node_page_id)?;
         match node.is_leaf {
             true => Ok(if let Some(ret) = node.get(key) {
-                Some(0)
+                Some(if root_is_a_leaf { node_page_id } else { 0 })
             } else {
                 None
             }),
             false => {
                 if let Some(found_node_page_id) = node.get(key.clone()) {
-                    return Ok(if let Some(result) = Self::search_node_by_key(key, pager, *found_node_page_id)? {
+                    return Ok(if let Some(result) = Self::search_node_by_key(key, pager, *found_node_page_id,root_is_a_leaf)? {
                         Some(if result==0 { *found_node_page_id } else { result })
                     }else {
                         None
@@ -358,16 +360,19 @@ impl BPlusTree {
         start: String,
         end: String,
         root_page_id: usize,
+        root_is_a_leaf:bool,
         pager: &Pager,
     ) -> InternalResult<usize> {
         let start_node_id =
-            Self::search_node_by_key(start, pager, root_page_id)?.ok_or(Error::CantGetValue)?;
+            Self::search_node_by_key(start, pager, root_page_id,root_is_a_leaf)?.ok_or(Error::CantGetValue)?;
         let mut start_node = pager.read_node(start_node_id)?;
 
         let end_node_id =
-            Self::search_node_by_key(end, pager, root_page_id)?.ok_or(Error::CantGetValue)?;
+            Self::search_node_by_key(end, pager, root_page_id,root_is_a_leaf)?.ok_or(Error::CantGetValue)?;
         let mut end_node = pager.read_node(end_node_id)?;
-
+        if start_node_id==end_node_id {
+            return Ok(start_node_id);
+        }
         while start_node.parent_page_id != end_node.parent_page_id {
             start_node = start_node.get_parent(pager)?;
 
@@ -380,10 +385,11 @@ impl BPlusTree {
         start: String,
         end: String,
         root_page_id: usize,
+        root_is_a_leaf:bool,
         pager: &Pager,
     ) -> InternalResult<HashSet<(String, usize)>> {
         let intersection =
-            match Self::find_nodes_intersection(start.clone(), end.clone(), root_page_id, pager) {
+            match Self::find_nodes_intersection(start.clone(), end.clone(), root_page_id,root_is_a_leaf,pager) {
                 Ok(ret) => Ok(ret),
                 Err(err) => if err==Error::CantGetValue {
                     return Ok(HashSet::new())
@@ -401,7 +407,11 @@ impl BPlusTree {
                 Some(ret) => {vec![ret]}
             });
         }
-        Ok(Self::range_search_internal(start, end, self.root_page_id, &self.pager)?.into_iter().collect::<Vec<(String, usize)>>())
+        let is_root_a_leaf={
+            let root=self.pager.read_node(self.root_page_id)?;
+            root.is_leaf
+        };
+        Ok(Self::range_search_internal(start, end, self.root_page_id,is_root_a_leaf, &self.pager)?.into_iter().collect::<Vec<(String, usize)>>())
     }
     pub fn search(&self, key: String) -> InternalResult<Option<Vec<u8>>> {
         Self::search_internal(key, &self.pager, self.root_page_id)

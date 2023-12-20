@@ -286,18 +286,16 @@ impl KeyValueStore {
                 tree.range_search(start.clone(),end.clone())?
             };
             let ret={
-                let mut ret=search.into_iter().map(|(key,value_location)| {
+                let mut ret=vec![String::default();search.len()];
+                for (key,value_location) in search{
                     let pager={
                         let tree=tree.read().unwrap();
                         tree.pager.read_value(value_location)
                     };
                     if let Ok(value) = pager {
-                        EncryptionService::get_instance().read().unwrap().decrypt(value, &key)
-                    } else {
-                        "".to_string()
+                        ret.push(EncryptionService::get_instance().read().unwrap().decrypt(value, &key));
                     }
-                } ).collect::<Vec<String>>();
-                ret.retain(|s| s.is_empty());
+                }
                 ret
             };
 
