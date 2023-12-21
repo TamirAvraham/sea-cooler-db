@@ -3,12 +3,14 @@ use std::{
     char::MAX,
     fs::{self, File, OpenOptions},
     io::{Read, Seek, Write},
-    mem::size_of, sync::RwLock,
+    mem::size_of,
+    sync::RwLock,
 };
 
 use crate::{
     error::{map_err, Error, InternalResult},
-    node::{self, Node, MAX_KEY_SIZE}, page_cache::FileCache,
+    node::{self, Node, MAX_KEY_SIZE},
+    page_cache::FileCache,
 };
 
 pub const PAGE_SIZE: usize = 1024 * 4;
@@ -41,14 +43,21 @@ impl Pager {
         RwLock::new(file)
     }
 
-    
-    pub fn new(nodes_file: File, values_file: File,cache_size: usize) -> Pager {
+    pub fn new(nodes_file: File, values_file: File, cache_size: usize) -> Pager {
         Pager {
-            nodes_cache: FileCache::new(cache_size,nodes_file),
+            nodes_cache: FileCache::new(cache_size, nodes_file),
             values_file: Self::file_to_pager_file(values_file),
             max_page_id: 0,
         }
     }
+    /// # Description
+    /// function reads a value from the values file and returns it
+    /// # Arguments
+    ///
+    /// * `location`:start of the value in the file
+    ///
+    /// returns: Result<Vec<u8, Global>, Error>
+
     pub fn read_value(&self, location: usize) -> InternalResult<Vec<u8>> {
         let mut file = self.values_file.write().unwrap();
 
@@ -68,6 +77,15 @@ impl Pager {
 
         Ok(value)
     }
+
+    /// #  Description
+    /// function writes a value to the values file and returns the location of the value in the file
+    /// # Arguments
+    ///
+    /// * `value`: value to write
+    ///
+    /// returns: Result<usize, Error>
+
     pub fn new_value(&mut self, value: &[u8]) -> InternalResult<usize> {
         let mut file = self.values_file.write().unwrap();
 
@@ -86,62 +104,35 @@ impl Pager {
         Ok(ret as usize)
     }
 
+    /// # Description
+    /// function deletes a value from the values file
+    /// # Arguments
+    ///
+    /// * `offset`: start of value to delete
+    ///
+    /// returns: Result<(), Error>
+
     pub fn delete_value(&mut self, offset: usize) -> Result<(), Error> {
         let mut file = self.values_file.write().unwrap();
         let mut value_len_as_bytes = [0; SIZE_OF_USIZE];
 
-        file.seek(std::io::SeekFrom::Start(offset as u64)).map_err(|_| Error::FileError)?;
-        file.read_exact(&mut value_len_as_bytes).map_err(|_| Error::FileError)?;
+        file.seek(std::io::SeekFrom::Start(offset as u64))
+            .map_err(|_| Error::FileError)?;
+        file.read_exact(&mut value_len_as_bytes)
+            .map_err(|_| Error::FileError)?;
 
         let value_len: usize = usize::from_be_bytes(value_len_as_bytes);
         let new_empty_value = vec![0; value_len];
-        file.seek(std::io::SeekFrom::Start((offset + SIZE_OF_USIZE) as u64)).map_err(|_| Error::FileError)?;
+        file.seek(std::io::SeekFrom::Start((offset + SIZE_OF_USIZE) as u64))
+            .map_err(|_| Error::FileError)?;
 
-        file.write_all(&new_empty_value).map_err(|_| Error::FileError)?;
+        file.write_all(&new_empty_value)
+            .map_err(|_| Error::FileError)?;
         Ok(())
     }
 
-    pub fn rebalance(pager: &mut Pager, node: &mut Node, t: usize) -> Result<(), Error> {
-        let mut parent = node.get_parent(pager).unwrap();
-        
-        if parent.is_leaf {
-            return Err(Error::ParentError);
-        }
-
-        let node_index_in_parent;
-        if node.keys.is_empty()&&node.values.is_empty(){
-            node_index_in_parent = 0;
-
-        } else {
-            let key = node.keys.last().unwrap().clone();
-
-            let mut i = 0;
-            while parent.keys.len() > i && parent.keys[i] < key {
-                i += 1
-            }
-            node_index_in_parent=i;
-        }
-
-        
-
-        let sibling_page_id_index;
-        let smaller_index;
-
-        match parent.keys.len().saturating_sub(1) == node_index_in_parent {
-            true => {
-                sibling_page_id_index = node_index_in_parent - 1;
-                smaller_index=sibling_page_id_index
-            }
-            false => {
-                sibling_page_id_index = node_index_in_parent + 1;
-                smaller_index = node_index_in_parent;
-            }
-        }
-
-        return Ok(());
-    }
-
-    pub fn delete_node(&mut self,page_id: usize)->InternalResult<()>{
+    // functions on cache
+    pub fn delete_node(&mut self, page_id: usize) -> InternalResult<()> {
         self.nodes_cache.delete_page(page_id)
     }
     pub fn read_node(&self, page_id: usize) -> InternalResult<Node> {
@@ -151,16 +142,20 @@ impl Pager {
     pub fn write_node(&mut self, node: &Node) -> InternalResult<()> {
         self.nodes_cache.write_node(node)
     }
-    pub fn new_node(&mut self)->InternalResult<Node>{
+    pub fn new_node(&mut self) -> InternalResult<Node> {
         self.nodes_cache.new_node()
     }
-    pub fn new_page(&mut self)->usize{
+    pub fn new_page(&mut self) -> usize {
         self.nodes_cache.new_page()
     }
-    pub fn get_node_max_key(&self,page_id: usize) -> Result<String, Error> {
+    pub fn get_node_max_key(&self, page_id: usize) -> Result<String, Error> {
         self.nodes_cache.get_node_max_key(page_id)
     }
-    pub fn update_node_parent(&mut self,page_id: usize,new_parent_id:usize)->Result<(),Error>{
+    pub fn update_node_parent(
+        &mut self,
+        page_id: usize,
+        new_parent_id: usize,
+    ) -> Result<(), Error> {
         self.nodes_cache.update_node_parent(page_id, new_parent_id)
     }
 }
@@ -184,8 +179,8 @@ pub fn create_pager() -> Pager {
 
     let nodes_file = file_options.open(&nodes_file_name).unwrap();
     let values_file = file_options.open(&vlaues_file_name).unwrap();
-    let cache_size=5;
-    Pager::new(nodes_file, values_file,cache_size)
+    let cache_size = 5;
+    Pager::new(nodes_file, values_file, cache_size)
 }
 #[cfg(test)]
 mod tests {
