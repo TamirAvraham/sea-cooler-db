@@ -2,7 +2,7 @@ use std::{
     cell::Cell,
     fs::File,
     io::{Read, Seek, SeekFrom, Write},
-    sync::{RwLock, RwLockWriteGuard, Mutex},
+    sync::{Mutex, RwLock, RwLockWriteGuard},
 };
 
 use crate::{
@@ -33,7 +33,7 @@ impl FileCache {
             cache[id..id + PAGE_SIZE].to_vec()
         } else {
             let mut cache = self.cache.write().unwrap();
-            self.move_cache(page_id*PAGE_SIZE, &mut cache).unwrap();
+            self.move_cache(page_id * PAGE_SIZE, &mut cache).unwrap();
             cache[0..PAGE_SIZE].to_vec()
         };
     }
@@ -79,6 +79,13 @@ impl FileCache {
             empty_pages: empty_page_ids,
         }
     }
+    ///# Description
+    /// function takes a node and converts it to a page size slice of bytes that represents the node
+    /// # Arguments
+    ///
+    /// * `node`: node to be translated to bytes
+    ///
+    /// returns: Result<[u8; 4096], Error>
     #[inline]
     fn transfer_node_to_bytes(&self, node: &Node) -> InternalResult<[u8; PAGE_SIZE]> {
         let mut page = [0; PAGE_SIZE];
@@ -104,6 +111,14 @@ impl FileCache {
         }
         Ok(page)
     }
+    /// #  Description
+    ///  function returns the id of a page in the cache if it is in it
+    /// # Arguments
+    ///
+    /// * `page_id`: page id in file
+    ///
+    /// returns: Option<usize>
+
     #[inline]
     fn relative_id(&self, page_id: usize) -> Option<usize> {
         let (start, end) = (self.start.lock().unwrap(), self.end.lock().unwrap());
@@ -115,19 +130,37 @@ impl FileCache {
             None
         }
     }
+    /// # Description
+    /// function takes a write guard of the cache and writes the cache to file
+    /// # Arguments
+    ///
+    /// * `cache`: write guard of a cache
+    ///
+    /// returns: Result<(), Error> (if there was an error writing cache to disk)
+    ///
     #[inline]
     fn write_cache_to_file(&self, cache: &mut RwLockWriteGuard<'_, Vec<u8>>) -> InternalResult<()> {
-        let mut file = self
-            .file
-            .write()
-            .map_err(map_err(Error::MovingCacheError(*self.start.lock().unwrap())))?;
+        let mut file = self.file.write().map_err(map_err(Error::MovingCacheError(
+            *self.start.lock().unwrap(),
+        )))?;
 
-        file.seek(SeekFrom::Start((PAGE_SIZE * *self.start.lock().unwrap()) as u64))
-            .map_err(map_err(Error::FileError))?;
+        file.seek(SeekFrom::Start(
+            (PAGE_SIZE * *self.start.lock().unwrap()) as u64,
+        ))
+        .map_err(map_err(Error::FileError))?;
 
         file.write_all(&cache).map_err(map_err(Error::FileError))?;
         Ok(())
     }
+    /// #  Description
+    /// function moves the cache around from it's current location to the start param
+    /// # Arguments
+    ///
+    /// * `start`: new start of the cache
+    /// * `cache`: write guard of the cache
+    ///
+    /// returns: Result<(), Error>
+    ///
     pub fn move_cache(
         &self,
         start: usize,
@@ -141,7 +174,8 @@ impl FileCache {
             .map_err(map_err(Error::MovingCacheError(start)))?;
 
         let new_cache = if *self.current_file_page_count.lock().unwrap() < start + self.cache_size {
-            let new_page_count = (start + self.cache_size) - *self.current_file_page_count.lock().unwrap();
+            let new_page_count =
+                (start + self.cache_size) - *self.current_file_page_count.lock().unwrap();
             let mut new_cache = vec![];
 
             if new_page_count < self.cache_size {
@@ -158,7 +192,7 @@ impl FileCache {
             }
 
             new_cache.extend(vec![0; new_page_count * PAGE_SIZE]);
-            *self.current_file_page_count.lock().unwrap()=start + self.cache_size;
+            *self.current_file_page_count.lock().unwrap() = start + self.cache_size;
             new_cache
         } else {
             file.seek(SeekFrom::Start(start as u64))
@@ -171,12 +205,20 @@ impl FileCache {
 
         *(*cache) = new_cache;
 
-        *self.start.lock().unwrap()=start;
-        *self.end.lock().unwrap()=start + self.cache_size;
+        *self.start.lock().unwrap() = start;
+        *self.end.lock().unwrap() = start + self.cache_size;
 
         Ok(())
     }
 
+    /// #  Description
+    ///  function writes the node to cache/file
+    /// # Arguments
+    ///
+    /// * `node`: node to write
+    ///
+    /// returns: Result<(), Error> (if there was an error writing node to cache)
+    ///
     pub fn write_node(&mut self, node: &Node) -> InternalResult<()> {
         let mut cache = self
             .cache
@@ -184,9 +226,9 @@ impl FileCache {
             .map_err(map_err(Error::CantWriteNode(node.page_id)))?;
 
         let relative_id = if let Some(page_id) = self.relative_id(node.page_id) {
-            page_id*PAGE_SIZE
+            page_id * PAGE_SIZE
         } else {
-            self.move_cache(node.page_id*PAGE_SIZE, &mut cache)?;
+            self.move_cache(node.page_id * PAGE_SIZE, &mut cache)?;
             0
         };
 
@@ -204,25 +246,47 @@ impl FileCache {
 
         Ok(())
     }
+    /// #  Description
+    ///     function deletes a page(cleans its data)
+    /// # Arguments
+    ///
+    /// * `page_id`: page id to delete
+    ///
+    /// returns: Result<(), Error> (if there was an error deleting page)
+
     pub fn delete_page(&mut self, page_id: usize) -> InternalResult<()> {
         let mut cache = self
             .cache
             .write()
             .map_err(map_err(Error::CantDeletePage(page_id)))?;
         let relative_id = if let Some(page_id) = self.relative_id(page_id) {
-            page_id*PAGE_SIZE
+            page_id * PAGE_SIZE
         } else {
-            self.move_cache(page_id*PAGE_SIZE, &mut cache)?;
+            self.move_cache(page_id * PAGE_SIZE, &mut cache)?;
             0
         };
 
         cache[relative_id..relative_id + PAGE_SIZE].copy_from_slice(&EMPTY_PAGE);
         Ok(())
     }
+    /// #   Description
+    /// function deletes node's page
+    /// # Arguments
+    ///
+    /// * `node`: node to delete it's page
+    ///
+    /// returns: Result<(), Error> (if there was an error deleting node's page)
     pub fn delete_node(&mut self, node: &Node) -> InternalResult<()> {
         self.delete_page(node.page_id)
             .map_err(map_err(Error::CantDeleteNode(node.page_id)))
     }
+    ///# Description
+    /// function reads a node from the cache
+    /// # Arguments
+    ///
+    /// * `page_id`: page id of the node
+    ///
+    /// returns: Result<Node, Error> (if there was an error reading node from cache)
     pub fn read_node(&self, page_id: usize) -> InternalResult<Node> {
         let relative_id = if let Some(page_id) = self.relative_id(page_id) {
             page_id * PAGE_SIZE
@@ -231,9 +295,9 @@ impl FileCache {
                 .cache
                 .write()
                 .map_err(map_err(Error::CantReadNode(page_id)))?;
-            self.move_cache(page_id*PAGE_SIZE, &mut cache)?;
+            self.move_cache(page_id * PAGE_SIZE, &mut cache)?;
             0
-        } ;
+        };
 
         let page = {
             let cache = self
@@ -321,6 +385,14 @@ impl FileCache {
 
         Ok(new_node)
     }
+    /// #  Description
+    /// function reads the max key from a node (last key cause the tree is sorted)
+    /// # Arguments
+    ///
+    /// * `page_id`: page id of the node
+    ///
+    /// returns: Result<String, Error> (if there was an error reading max key from node)
+
     pub fn get_node_max_key(&self, page_id: usize) -> InternalResult<String> {
         let relative_id = if let Some(page_id) = self.relative_id(page_id) {
             page_id
@@ -329,10 +401,10 @@ impl FileCache {
                 .cache
                 .write()
                 .map_err(map_err(Error::CantReadNode(page_id)))?;
-            self.move_cache(page_id*PAGE_SIZE, &mut cache)?;
+            self.move_cache(page_id * PAGE_SIZE, &mut cache)?;
             0
         };
-        let start=PAGE_SIZE*relative_id;
+        let start = PAGE_SIZE * relative_id;
 
         let cache = self
             .cache
@@ -340,7 +412,8 @@ impl FileCache {
             .map_err(map_err(Error::CantReadNode(page_id)))?;
 
         let key_count = usize::from_be_bytes(
-            (&cache[start+NODE_KEY_COUNT_OFFSET..start+ NODE_KEY_COUNT_OFFSET + NODE_KEY_COUNT_SIZE])
+            (&cache[start + NODE_KEY_COUNT_OFFSET
+                ..start + NODE_KEY_COUNT_OFFSET + NODE_KEY_COUNT_SIZE])
                 .try_into()
                 .map_err(map_err(Error::CantReadNode(page_id)))?,
         );
@@ -348,14 +421,27 @@ impl FileCache {
         let key_start = HEADER_SIZE + key_count * MAX_KEY_SIZE;
 
         Ok(
-            String::from_utf8(cache[start+key_start..start+MAX_KEY_SIZE + key_start].to_vec())
+            String::from_utf8(cache[start + key_start..start + MAX_KEY_SIZE + key_start].to_vec())
                 .map_err(map_err(Error::CantReadNode(page_id)))?
                 .trim_end_matches('\0')
                 .to_string(),
         )
     }
 
-    pub fn update_node_parent(&mut self,page_id: usize,new_parent_id:usize)-> Result<(),Error>{
+    /// #   Description
+    /// function updates the parent of a node
+    /// # Arguments
+    ///
+    /// * `page_id`: node page id
+    /// * `new_parent_id`: new parent page id
+    ///
+    /// returns: Result<(), Error> (if there was an error updating node parent)
+
+    pub fn update_node_parent(
+        &mut self,
+        page_id: usize,
+        new_parent_id: usize,
+    ) -> Result<(), Error> {
         let relative_id = if let Some(page_id) = self.relative_id(page_id) {
             page_id
         } else {
@@ -363,17 +449,18 @@ impl FileCache {
                 .cache
                 .write()
                 .map_err(map_err(Error::CantReadNode(page_id)))?;
-            self.move_cache(page_id*PAGE_SIZE, &mut cache)?;
+            self.move_cache(page_id * PAGE_SIZE, &mut cache)?;
             0
         };
-        let start=PAGE_SIZE*relative_id;
+        let start = PAGE_SIZE * relative_id;
 
         let mut cache = self
             .cache
             .write()
             .map_err(map_err(Error::CantReadNode(page_id)))?;
 
-        cache[start+NODE_PARENT_OFFSET..start+NODE_PARENT_OFFSET+NODE_PARENT_SIZE].clone_from_slice(&new_parent_id.to_be_bytes());
+        cache[start + NODE_PARENT_OFFSET..start + NODE_PARENT_OFFSET + NODE_PARENT_SIZE]
+            .clone_from_slice(&new_parent_id.to_be_bytes());
 
         self.write_cache_to_file(&mut cache)
     }
