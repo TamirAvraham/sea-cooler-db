@@ -38,14 +38,40 @@ impl JsonObject {
             map: HashMap::new(),
         }
     }
+    /// # Description
+    ///  the function inserts a json value with it's key if the key already exists it will replace the data and return the old data
+    /// # Arguments
+    ///
+    /// * `k`: key to insert
+    /// * `v`: data to insert
+    ///
+    /// returns: Option<JsonData> (it will return whether it replaced data and if it did it will return the old data)
+    ///
     pub fn insert(&mut self, k: String, v: JsonData) -> Option<JsonData> {
         self.map.insert(k, v)
     }
+    /// # Description
+    ///  the function looks up a key in the json and returns its data (if it found it)
+    /// # Arguments
+    ///
+    /// * `key`: key to look up in the object
+    ///
+    /// returns: Option<&JsonData>
+    ///
+
     pub fn get(&self,key:&String)->Option<&JsonData>{
         self.map.get(key)
     }
 }
 impl JsonType {
+    /// # Description
+    ///  function takes a string and returns its corresponding data type (if it found one)
+    /// # Arguments
+    ///
+    /// * `data`: reference for string to check it's type
+    ///
+    /// returns: Result<JsonType, JsonError>
+    ///
     pub fn get_type(data: &String) -> Result<JsonType, JsonError> {
         //null
         if data == "null" || data == "undefined" {
@@ -80,10 +106,18 @@ impl JsonData {
     pub fn new(data: String, data_type: JsonType) -> JsonData {
         JsonData { data, data_type }
     }
+    /// # Description
+    /// function tries to create an instance from a string and inferring it's type (will fail if cant detect type)
+    /// # Arguments
+    ///
+    /// * `data`: data of the new instance
+    ///
+    /// returns: Result<JsonData, JsonError>
     pub fn infer_from_string(data: String) -> Result<Self, JsonError> {
         let data_type = JsonType::get_type(&data)?;
         Ok(Self { data, data_type })
     }
+    //start of casters
     pub fn as_float(&self) -> Result<f32, JsonError> {
         self.try_into()
     }
@@ -105,6 +139,9 @@ impl JsonData {
     pub fn is_null(&self) -> bool {
         self.data_type == JsonType::Null
     }
+    //end of casters\
+
+    //start of froms
     pub fn from_string(v: String) -> JsonData {
         JsonData {
             data: format!("\"{}\"", v),
@@ -129,18 +166,31 @@ impl JsonData {
             data_type: JsonType::Boolean,
         }
     }
+    //end of froms
+
+    ///# Description
+    /// function is a shortcut to creating a new null
     pub fn new_null() -> JsonData {
         JsonData {
             data: "null".to_string(),
             data_type: JsonType::Null,
         }
     }
+
     pub fn get_type(&self)->JsonType{
         self.data_type
     }
 }
 
 impl JsonDeserializer {
+    /// # Description
+    ///  function checks for json keys in a string fails if it cant find any more keys
+    /// # Arguments
+    ///
+    /// * `data`: reference to json string
+    ///
+    /// returns: Result<(usize, usize), JsonError> (key start,key end)
+    ///
     fn get_key_position(data: &String) -> Result<(usize, usize), JsonError> {
         if let Some(key_start) = data.find("\"") {
             if let Some(key_end) = data[key_start + 1..].find("\"") {
@@ -149,6 +199,16 @@ impl JsonDeserializer {
         }
         Err(JsonError::ParseError)
     }
+    /// #  Description
+    /// function looks for the matching closing bracket of a json object or array
+    /// # Arguments
+    ///
+    /// * `json_string`: reference to json string
+    /// * `start_index`: index to start looking for the closing bracket
+    ///
+    /// returns: Result<usize, JsonError> (index of the closing bracket)
+    ///
+
     fn find_matching_closing_bracket(
         json_string: &str,
         start_index: usize,
@@ -178,8 +238,18 @@ impl JsonDeserializer {
 
         Err(JsonError::ParseError)
     }
+    /// # Description
+    ///  function tries to find the start and end of the last value in a json object string or a json array string depending on the arr flag
+    /// # Arguments
+    ///
+    /// * `data`: cleaned json to look for the last value with in it
+    /// * `arr`: if to look for an object ending(}) or look for an array ending(])
+    ///
+    /// returns: Result<usize, JsonError> (last value start)
+    ///
+
     fn get_last_value(data: &str, arr: bool) -> Result<usize, JsonError> {
-        if data.find(if arr { '[' } else { '{' }).is_none() {
+        if data.find(if arr { '[' } else { '{' }).is_none() { // look if there are different nested objects in the value
             if let Some(end) = data.find(if arr { ']' } else { '}' }) {
                 return Ok(end);
             }
@@ -187,6 +257,15 @@ impl JsonDeserializer {
 
         Err(JsonError::ParseError)
     }
+    /// #  Description
+    /// function tries to find the start and end of a value in a json array string
+    /// # Arguments
+    ///
+    /// * `data`: reference to a json array string
+    ///
+    /// returns: Result<(usize, usize), JsonError> (member start, member end)
+    ///
+
     fn get_arr_member(data: &String) -> Result<(usize, usize), JsonError> {
         if let Some(first_char) = data[1..].chars().next() {
             let end = if first_char == '[' || first_char == '{' {
@@ -202,20 +281,27 @@ impl JsonDeserializer {
         }
         Err(JsonError::ParseError)
     }
-    fn get_value_position(data: &String, arr: bool) -> Result<(usize, usize), JsonError> {
+    /// #  Description
+    /// function tries to find the start and end of a value in an json object string
+    /// # Arguments
+    ///
+    /// * `data`: reference to a clean json
+    ///
+    /// returns: Result<(usize, usize), JsonError> (value start, value end)
+    ///
+
+    fn get_value_position(data: &String) -> Result<(usize, usize), JsonError> {
         if let Some(start) = data.find(':') {
             if let Some(first_char) = data[start + 1..].chars().next() {
                 let end = if first_char == '[' || first_char == '{' {
                     Self::find_matching_closing_bracket(&data[start + 1..], 0)? + 1
                 }
-                //else if first_char == '\"'{
-                //     data[start + 2..].find('\"').ok_or(JsonError::ParseError)?+1
-                // }
+
                 else {
                     if let Some(end) = data[start + 1..].find(",\"") {
                         end
                     } else {
-                        Self::get_last_value(&data[start + 1..], arr)?
+                        Self::get_last_value(&data[start + 1..], false)?
                     }
                 };
                 return Ok((start + 1, end));
@@ -223,9 +309,17 @@ impl JsonDeserializer {
         }
         Err(JsonError::ParseError)
     }
+    /// # Description
+    ///  function selects a line from a cleaned json string
+    /// # Arguments
+    ///
+    /// * `data`: a reference to cleaned json string
+    ///
+    /// returns: Result<(String, String, usize), JsonError>  (key, value, key value pair end)
+    ///
     fn get_line(data: &String) -> Result<(String, String, usize), JsonError> {
         let (key_start, key_end) = Self::get_key_position(data)?;
-        let (value_start, value_end) = Self::get_value_position(data, false)?;
+        let (value_start, value_end) = Self::get_value_position(data)?;
 
         Ok((
             data[key_start..key_start + key_end].to_string(),
@@ -233,6 +327,16 @@ impl JsonDeserializer {
             value_start + value_end,
         ))
     }
+
+    /// # Description
+    ///  function cleans up a json string so it can be parsed into a json object later by JsonDeserializer
+    /// # Arguments
+    ///
+    /// * `json`: json string to clean
+    ///
+    /// returns: String
+    ///
+
     fn clean_json(json: &String) -> String {
         let mut result = String::new();
         let mut in_string = false;
@@ -261,6 +365,15 @@ impl JsonDeserializer {
 
         result
     }
+    /// # Description
+    /// function deserializes a json string into a json array
+    /// # Arguments
+    ///
+    /// * `data`: json array as string
+    ///
+    /// returns: Result<Vec<JsonData, Global>, JsonError>
+    ///
+
     pub fn deserialize_array(data: &String) -> Result<JsonArray, JsonError> {
         let mut data = data.clone();
         let mut ret = vec![];
@@ -275,6 +388,15 @@ impl JsonDeserializer {
         }
         Ok(ret)
     }
+    /// # Description
+    /// function deserializes a json string into a json object
+    /// # Arguments
+    ///
+    /// * `data`: json object as string
+    ///
+    /// returns: Result<JsonObject, JsonError>
+    ///
+
     pub fn deserialize(mut data: String) -> Result<JsonObject, JsonError> {
         let mut ret = JsonObject::new();
         data = Self::clean_json(&data);
@@ -290,9 +412,27 @@ impl JsonDeserializer {
 }
 
 impl JsonSerializer {
+    /// #  Description
+    /// function serializes a json object into a string
+    /// # Arguments
+    ///
+    /// * `json`: json object to serialize
+    ///
+    /// returns: String (json as string)
+    ///
     pub fn serialize(json: JsonObject) -> String {
         Self::serialize_with_spacer(json, 0, true)
     }
+    /// #  Description
+    /// function serializes a json object into a string with a spacer
+    /// # Arguments
+    ///
+    /// * `json`: json object to serialize
+    /// * `spacer`: number of tabs
+    /// * `new_lines`: add a new line at the end
+    ///
+    /// returns: String
+    ///
     fn serialize_with_spacer(json: JsonObject, spacer: u8, new_lines: bool) -> String {
         let mut ret = "{".to_string();
         if new_lines {
@@ -315,8 +455,7 @@ impl JsonSerializer {
         let c=ret.pop().unwrap();
         if !new_lines {
             ret.push(c)
-        }
-        if new_lines {
+        } else {
             ret.push('\n');
         }
 
@@ -387,6 +526,13 @@ impl TryFrom<String> for JsonObject {
 }
 
 impl JsonData {
+    /// # Description
+    /// function returns the json string version of the data
+    /// # Arguments
+    /// * `spacer`: number of tabs
+    /// * `new_lines`: add a new line at the end
+    /// # Returns
+    ///  String (json string)
     fn to_json_string(&self, spacer: u8, new_lines: bool) -> String {
         match self.data_type {
             JsonType::String => self.data.clone(),
