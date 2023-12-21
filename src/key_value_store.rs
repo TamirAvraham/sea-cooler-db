@@ -50,16 +50,20 @@ impl From<io::Error> for KeyValueError {
         KeyValueError::FileError(item)
     }
 }
-/*
-   shit i need to impl:
-   test restore on logger
-   maybe start collections
-*/
+
 impl KeyValueStore {
     fn recover(&mut self) {
         let mut tree = self.tree.write().unwrap();
         self.logger.lock().unwrap().restore(&mut tree);
     }
+    /// # Description
+    /// function tries to read a bloom filter from disk.
+    /// # Arguments
+    ///
+    /// * `name`: name of the key value store
+    ///
+    /// returns: Result<BloomFilter, KeyValueError>
+
     fn load_bloom_filter_from_file(name: &String) -> KvResult<BloomFilter> {
         let mut bloom_filter_data = vec![0u8; M as usize];
 
@@ -81,6 +85,13 @@ impl KeyValueStore {
 
         Ok(BloomFilter { bit_array })
     }
+    /// #  Description
+    /// function to read kv from disk.
+    /// # Arguments
+    ///
+    /// * `name`: name of the key value store
+    ///
+    /// returns: Result<KeyValueStore, KeyValueError>
     fn load(name: String) -> KvResult<Self> {
         let tree = Arc::new(RwLock::new(
             btree::BTreeBuilder::new()
@@ -124,6 +135,15 @@ impl KeyValueStore {
             panic!("cant create kv ")
         }
     }
+    /// # Description
+    /// function saves bloom filter on disk.
+    /// # Arguments
+    ///
+    /// * `bloom_filter`: thread protector of bloom filter
+    /// * `name`: name of the collection
+    ///
+    /// returns: Result<(), KeyValueError>
+
     fn save_bloom_filter_on_file(bloom_filter:ThreadProtector<BloomFilter>,name:&String) -> Result<(), KeyValueError> {
         let bloom_filter_data_as_vec_u8;
 
@@ -143,6 +163,19 @@ impl KeyValueStore {
         )
         .map_err(|e| KeyValueError::FileError(e))
     }
+
+    /// # Description
+    /// function tries to insert value into the key value store
+    /// # Arguments
+    ///
+    /// * `tree`: b+ tree of the key value store
+    /// * `logger`: logger of the key value store
+    /// * `bloom_filter`: bloom filter of the key value store
+    /// * `insert_count`: counter of how many inserts there were (used to optimize bloom filter updates)
+    /// * `key`: key to insert
+    /// * `value`: value to insert
+    ///
+    /// returns: Result<usize, KeyValueError>
 
     fn insert_internal(
         tree: &Arc<RwLock<BPlusTree>>,
@@ -193,6 +226,18 @@ impl KeyValueStore {
         }
         Ok(ret)
     }
+
+
+    /// #  Description
+    /// function tries to search for a key in the store
+    /// # Arguments
+    ///
+    /// * `tree`: b+ tree of the store
+    /// * `bloom_filter`: bloom filter of the store
+    /// * `logger`: logger of the store
+    /// * `key`: key to search for
+    ///
+    /// returns: Result<Option<String>, KeyValueError>
     fn search_internal(
         tree: &ThreadProtector<BPlusTree>,
         bloom_filter: &ThreadProtector<BloomFilter>,
@@ -248,6 +293,17 @@ impl KeyValueStore {
             None
         })
     }
+    /// #  Description
+    ///  function tries to search a range  of keys in the store
+    /// # Arguments
+    ///
+    /// * `tree`: b+ tree of the store
+    /// * `logger`: logger of the store
+    /// * `start`: start of range
+    /// * `end`: end of range
+    ///
+    /// returns: Result<Vec<String, Global>, KeyValueError>
+    ///
     fn range_scan_internal(
         tree: &ThreadProtector<BPlusTree>,
         logger: &ThreadGuard<Logger>,
@@ -302,6 +358,19 @@ impl KeyValueStore {
             ret}
         )
     }
+    /// #  Description
+    ///  function tries to update a key from the store and calls the associated overwatch function if it has any
+    /// # Arguments
+    ///
+    /// * `tree`: b+ tree of the store
+    /// * `bloom_filter`: bloom filter of the store
+    /// * `logger`: logger of the store
+    /// * `overwatch`: overwatch of the store
+    /// * `key`: key to update
+    /// * `new_value`: new value to update with
+    ///
+    /// returns: Result<Option<String>, KeyValueError>
+    ///
     fn update_internal(
         logger: &ThreadGuard<Logger>,
         tree: &ThreadProtector<BPlusTree>,
@@ -368,6 +437,18 @@ impl KeyValueStore {
             Ok(None)
         }
     }
+    /// #  Description
+    ///  function tries to delete a key from the store and calls the associated overwatch function if it has any
+    /// # Arguments
+    ///
+    /// * `tree`: b+ tree of the store
+    /// * `bloom_filter`: bloom filter of the store
+    /// * `logger`: logger of the store
+    /// * `overwatch`: overwatch of the store
+    /// * `key`: key to delete
+    ///
+    /// returns: Result<Option<String>, KeyValueError>
+    ///
     fn delete_internal(
         tree: &ThreadProtector<BPlusTree>,
         bloom_filter: &ThreadProtector<BloomFilter>,
@@ -438,6 +519,15 @@ impl KeyValueStore {
         Ok(())
     }
 
+    /// # Description
+    /// function tries to insert a key into the store saves bloom filter on disk all executed by the threadpool
+    /// # Arguments
+    ///
+    /// * `key`: new key to insert
+    /// * `value`: new value to insert
+    ///
+    /// returns: ComputedValue<Option<usize>> (promise of the new value location)
+
     pub fn insert(&mut self, key: String, value: String) -> ComputedValue<Option<usize>> {
         let tree = Arc::clone(&self.tree);
         let logger = Arc::clone(&self.logger);
@@ -496,6 +586,16 @@ impl KeyValueStore {
         });
         ret
     }
+    /// #  Description
+    /// function tries to update a key from the store and calls its corresponding overwatch function if it has one all executed by the threadpool
+    /// # Arguments
+    ///
+    /// * `key`: key to update
+    /// * `new_value`: new value for key
+    ///
+    /// returns: ComputedValue<Option<String>> (promise to the new old value of the key if it had any)
+    ///
+
     pub fn update(&mut self, key: String, new_value: String) -> ComputedValue<Option<String>> {
         let tree = Arc::clone(&self.tree);
         let logger = Arc::clone(&self.logger);
@@ -524,6 +624,14 @@ impl KeyValueStore {
             (),
         )
     }
+    /// # Description
+    /// function searches for a key in the store and returns a promise to the result executed on the threadpool
+    /// # Arguments
+    ///
+    /// * `key`: key to search for
+    ///
+    /// returns: ComputedValue<Option<String>>
+
     pub fn search(&self, key: String) -> ComputedValue<Option<String>> {
         let tree = Arc::clone(&self.tree);
         let logger = Arc::clone(&self.logger);
@@ -556,6 +664,14 @@ impl KeyValueStore {
         });
         ComputedValue::new(ret)
     }
+    /// #  Description
+    /// function searches for a range of keys in the store and returns a promise to the result executed on the threadpool
+    /// # Arguments
+    ///
+    /// * `start`: start of range
+    /// * `end`: end of range
+    ///
+    /// returns: ComputedValue<Vec<String, Global>> (promise to the value pointer vector)
     pub fn range_scan(&self, start: String,end:String) -> ComputedValue<Vec<String>> {
         let tree = Arc::clone(&self.tree);
         let logger = Arc::clone(&self.logger);
@@ -583,6 +699,14 @@ impl KeyValueStore {
         },())
 
     }
+    /// #  Description
+    /// function tries to delete a key from the store and calls its corresponding overwatch function if it has one all executed by the threadpool
+    /// # Arguments
+    ///
+    /// * `key`: key to delete
+    ///
+    /// returns: ()
+
     pub fn delete(&mut self, key: String) {
         let tree = Arc::clone(&self.tree);
         let logger = Arc::clone(&self.logger);
@@ -599,6 +723,8 @@ impl KeyValueStore {
             };
         });
     }
+    /// # Description
+    /// function erases the store
     pub fn erase(self) {
         fs::remove_file(&format!("{}{}", self.name, OPERATION_LOGGER_FILE_ENDING)).unwrap(); // op logger
         fs::remove_file(&format!("{}.{}", self.name, BLOOM_FILTER_PATH)).unwrap(); //bloom filter
