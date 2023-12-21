@@ -164,6 +164,18 @@ impl BPlusTree {
                 Error::FileError
             })
     }
+    /// # Description
+    /// function updates a node in the tree
+    /// # Arguments
+    ///
+    /// * `key`: key to update
+    /// * `pager`: pager of the tree
+    /// * `node_page_id`: current node page id
+    /// * `value`: new value
+    ///
+    /// returns: Result<Option<Vec<u8, Global>>, Error> (old value)
+    ///
+
     fn update_internal(
         key: String,
         pager: &mut Pager,
@@ -171,7 +183,7 @@ impl BPlusTree {
         value: &[u8],
     ) -> InternalResult<Option<Vec<u8>>> {
         let mut node = pager.read_node(node_page_id)?;
-        match node.is_leaf {
+        return match node.is_leaf {
             true => {
                 if let Some(value_location) = node.get(key.clone()) {
                     let old_value = pager.read_value(*value_location)?;
@@ -181,22 +193,42 @@ impl BPlusTree {
                     node.update(key, new_value_location);
                     pager.write_node(&node)?;
 
-                    return Ok(Some(old_value));
+                    Ok(Some(old_value))
                 } else {
-                    return Ok(None);
+                    Ok(None)
                 }
             }
             false => {
                 if let Some(node_page_id) = node.get(key.clone()) {
                     return Self::update_internal(key, pager, *node_page_id, value);
                 }
-                return Ok(None);
+                Ok(None)
             }
         }
     }
+    /// #  Description
+    ///  function is a wrapper for update internal
+    /// # Arguments
+    ///
+    /// * `key`: key to update
+    /// * `value`: new value
+    ///
+    /// returns: Result<Option<Vec<u8, Global>>, Error> (old value)
     pub fn update(&mut self, key: String, value: &[u8]) -> InternalResult<Option<Vec<u8>>> {
         Self::update_internal(key, &mut self.pager, self.root_page_id, value)
     }
+
+    /// #  Description
+    ///  function inserts a value into the tree
+    /// # Arguments
+    ///
+    /// * `pager`: pager of the tree
+    /// * `key`: key of new value
+    /// * `value`: value to insert
+    /// * `t`: t of the tree
+    /// * `node_page_id`: current node page id
+    ///
+    /// returns: Result<(bool, usize), Error> (did split?,value location)
 
     fn insert_internal(
         pager: &mut Pager,
@@ -236,6 +268,14 @@ impl BPlusTree {
             }
         }
     }
+    /// #  Description
+    ///  function is a wrapper for insert internal
+    /// # Arguments
+    ///
+    /// * `key`: key of new value
+    /// * `value`: value to insert
+    ///
+    /// returns: Result<usize, Error> (value location)
     pub fn insert(&mut self, key: String, value: &[u8]) -> InternalResult<usize> {
         let (insert_internal, ret) =
             Self::insert_internal(&mut self.pager, key, value, self.t, self.root_page_id)?;
@@ -246,6 +286,15 @@ impl BPlusTree {
         }
         Ok(ret)
     }
+    /// #  Description
+    /// function looks for the value location of a key
+    /// # Arguments
+    ///
+    /// * `key`: key to look for
+    /// * `pager`: pager of the tree
+    /// * `node_page_id`: current node page id
+    ///
+    /// returns: Result<Option<usize>, Error> (value location)
     fn search_for_value_pointer(
         key: String,
         pager: &Pager,
@@ -268,6 +317,15 @@ impl BPlusTree {
             }
         }
     }
+    /// #  Description
+    /// function looks for the value of a key
+    /// # Arguments
+    ///
+    /// * `key`: key to look for
+    /// * `pager`: pager of the tree
+    /// * `node_page_id`: current node page id
+    ///
+    /// returns: Result<Option<Vec<u8>>, Error> (value)
     fn search_internal(
         key: String,
         pager: &Pager,
@@ -291,6 +349,15 @@ impl BPlusTree {
             }
         }
     }
+    /// #  Description
+    /// function looks for a node that contains key
+    /// # Arguments
+    ///
+    /// * `key`: key to look for
+    /// * `pager`: pager of the tree
+    /// * `node_page_id`: current node page id
+    /// * `root_is_a_leaf`: is root node a leaf
+    /// returns: Result<Option<usize>, Error> (node page id)
     fn search_node_by_key(
         key: String,
         pager: &Pager,
@@ -316,6 +383,16 @@ impl BPlusTree {
             }
         }
     }
+    /// #  Description
+    ///  function gets all values in a node in a range
+    /// # Arguments
+    ///
+    /// * `start`: start of range
+    /// * `end`: end of range
+    /// * `pager`: pager of the tree
+    /// * `node_page_id`: page id of current node
+    ///
+    /// returns: Result<Vec<(String, usize), Global>, Error> ((key,value_location))
     fn get_values(
         start: &String,
         end: &String,
@@ -356,6 +433,17 @@ impl BPlusTree {
             }
         })
     }
+    /// #  Description
+    /// function finds the first common node between 2 nodes
+    /// # Arguments
+    ///
+    /// * `start`: start of range
+    /// * `end`: end of range
+    /// * `pager`: pager of the tree
+    /// * `root_page_id`: page id of root node
+    /// * `root_is_a_leaf`: is root node a leaf
+    ///
+    /// returns: Result<usize, Error> (node page id)
     fn find_nodes_intersection(
         start: String,
         end: String,
@@ -381,6 +469,17 @@ impl BPlusTree {
 
         Ok(start_node.parent_page_id)
     }
+    /// #  Description
+    /// function searches for a range in the tree
+    /// # Arguments
+    ///
+    /// * `start`: start of range
+    /// * `end`: end of range
+    /// * `pager`: pager of the tree
+    /// * `root_page_id`: id of the root page
+    /// * `root_is_a_leaf`: is the root node a leaf
+    ///
+    /// returns: Result<HashSet<(String, usize)>, Error> ((key,value_location))
     fn range_search_internal(
         start: String,
         end: String,
@@ -400,6 +499,15 @@ impl BPlusTree {
         Ok(Self::get_values(&start, &end, pager, intersection)?.into_iter()
             .collect::<HashSet<(String,usize)>>())
     }
+    /// #   Description
+    /// function is a wrapper for range_search_internal.
+    /// function searches for a range of values in the tree and returns a vector of its keys and value pointers
+    /// # Arguments
+    ///
+    /// * `start`: start of the range
+    /// * `end`: end of the range
+    ///
+    /// returns: Result<Vec<(String, usize), Global>, Error>
     pub fn range_search(&self, start: String, end: String) -> Result<Vec<(String, usize)>, Error> {
         if start==end {
             return Ok(match Self::search_for_value_pointer(start, &self.pager,self.root_page_id)? {
@@ -413,10 +521,29 @@ impl BPlusTree {
         };
         Ok(Self::range_search_internal(start, end, self.root_page_id,is_root_a_leaf, &self.pager)?.into_iter().collect::<Vec<(String, usize)>>())
     }
+    /// # Description
+    /// function is a wrapper for search_internal.
+    /// function searches for a value in the tree
+    /// # Arguments
+    ///
+    /// * `key`: key to look for
+    ///
+    /// returns: Result<Option<Vec<u8, Global>>, Error>
+
     pub fn search(&self, key: String) -> InternalResult<Option<Vec<u8>>> {
         Self::search_internal(key, &self.pager, self.root_page_id)
     }
 
+    /// # Description
+    ///  function deletes a node from the tree
+    /// # Arguments
+    ///
+    /// * `key`: key to delete
+    /// * `pager`: pager of the tree
+    /// * `node_page_id`: page id of the node current node
+    ///
+    /// returns: Result<(), Error>
+    ///
     fn delete_node(
         key: String,
         pager: &mut Pager,
@@ -426,7 +553,7 @@ impl BPlusTree {
 
         match node.is_leaf {
             true => {
-                if let Some(check_if_key_exists) = node.get(key.clone()) {
+                if let Some(value_location) = node.get(key.clone()) {
                     let i = node.keys.iter().position(|r| r.clone() == key.clone()).unwrap();
 
                     pager.delete_value(node.values[i])?;
@@ -447,7 +574,12 @@ impl BPlusTree {
 
         Ok(())
     }
-
+    /// # Description
+    ///  function deletes a value from the tree
+    /// # Arguments
+    /// * `key`: key to delete
+    ///
+    /// returns: Result<(), Error>
     pub fn delete(&mut self, key: String) -> Result<(), Error> {
         Self::delete_node(key, &mut self.pager, self.root_page_id)
     }
