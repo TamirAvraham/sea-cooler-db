@@ -32,6 +32,17 @@ impl JsonValidationProperty {
             constraints: HashSet::new(),
         }
     }
+    /// # Description
+    /// function adds constraint to the property
+    ///
+    /// # Panics
+    /// * if the data type of the property and the constraint do not match
+    /// # Arguments
+    ///
+    /// * `constraint`: value constraint to be added to the property
+    ///
+    /// returns: JsonValidationProperty
+    ///
     pub fn constraint(mut self, constraint: JsonConstraint) -> Self {
         match &constraint {
             JsonConstraint::ValueConstraint(data, order) => {
@@ -53,6 +64,14 @@ impl ValidationJson {
     pub fn new() -> ValidationJson {
         ValidationJson { props: vec![] }
     }
+    /// #  Description
+    /// function adds property to the validation json
+    /// # Arguments
+    ///
+    /// * `prop`: property to be added to the validation json
+    ///
+    /// returns: ValidationJson
+    ///
     pub fn add(mut self, prop: JsonValidationProperty) -> Self {
         self.props.push(prop);
         self
@@ -96,6 +115,14 @@ impl ValidationJson {
             JsonType::Null => value2.is_null(),
         }
     }
+    ///# Description
+    /// function validates the json against the validation json
+    /// # Arguments
+    ///
+    /// * `json`: json to be validated
+    ///
+    /// returns: Result<(), JsonValidationError>
+    ///
     pub fn validate(&self, json: &JsonObject) -> Result<(), JsonValidationError> {
         for prop in self.props.iter() {
             if let Some(value) = json.get(&prop.name) {
