@@ -9,25 +9,61 @@ pub struct Overwatch<T> {
 }
 
 impl<'a,T> Overwatch<T> where 'a:'static {
+    /// # Description
+    ///  function binds an update function to a key in the overwatch
+    /// # Arguments
+    ///
+    /// * `key`: key to bind the function to
+    /// * `f`: function to run when the key is updated (takes the new value as a parameter)
+    ///
+
     pub fn insert_update<F>(&mut self,key:&String,f:F) where F:FnMut(T)->()+'a+Send{
         self.update_map.insert(key.clone(), Box::new(f));
     }
+    /// #  Description
+    /// function binds a delete function to a key in the overwatch
+    /// # Arguments
+    ///
+    /// * `key`: key to bind the function to
+    /// * `f`:function to run when the key is deleted (takes the last value as a parameter)
     pub fn insert_delete<F>(&mut self,key:&String,f:F) where F:FnMut(T)->()+'a+Send{
         self.delete_map.insert(key.clone(), Box::new(f));
     }
+    /// #  Description
+    /// function runs the update function bound to the key (if it exists) with the new value
+    /// # Arguments
+    ///
+    /// * `key`: key bound to the function
+    /// * `new_value`: new value to pass to the function
     pub fn get_update(&mut self,key:&String,new_value:T){
         if let Some(f) = self.update_map.get_mut(key) {
             (f)(new_value);
         }
     }
+    /// #  Description
+    /// function runs the delete function bound to the key (if it exists) with the last value
+    /// # Arguments
+    ///
+    /// * `key`: key bound to the function
+    /// * `last_value`: last value to pass to the function
     pub fn get_delete(&mut self,key:&String,last_value:T){
         if let Some(f) = self.delete_map.get_mut(key) {
             (f)(last_value);
         }
     }
+    /// #   Description
+    /// function removes the update function bound to the key (if it exists)
+    /// # Arguments
+    ///
+    /// * `key`: key bound to the function
     pub fn remove_update(&mut self,key:&String) {
         self.update_map.remove(key);
     }
+    /// # Description
+    /// function removes the delete function bound to the key (if it exists)
+    /// # Arguments
+    ///
+    /// * `key`: key bound to the function
     pub fn remove_delete(&mut self,key:&String) {
         self.delete_map.remove(key);
     }
