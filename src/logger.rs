@@ -90,6 +90,14 @@ where
             id,
         }
     }
+    /// #  Description
+    /// function writes message into log
+    /// # Arguments
+    ///
+    /// * `log_type`: what log write the message to
+    /// * `message`: message that will be written
+    /// 
+    /// returns: Result<(), Error>
     pub fn log(&mut self, log_type: LogType, message: String) -> Result<(), LoggerError> {
         let log = format!(
             "{}| {}: {}.\n",
@@ -182,6 +190,13 @@ impl OperationLogger {
             id,
         }
     }
+    /// #  Description
+    /// function writes operation into fail log
+    /// # Arguments
+    ///
+    /// * `op_type`: type of operation to write into fail log
+    ///
+    /// returns: Result<(), Error>
     fn write_to_fail_log(&self, op_type: &OperationType) -> Result<(), LoggerError> {
         let mut open_options = OpenOptions::new();
         Self::write_string_to_file(
@@ -231,6 +246,14 @@ impl OperationLogger {
             .map_err(|_| LoggerError::CantWriteParam)?;
         Ok(())
     }
+    /// #  Description
+    /// function turns byte into operation type
+    /// # Arguments
+    ///
+    /// * `file`: name of file
+    /// * `op_type_byte`: byte to turn into operation type
+    ///
+    /// returns: Result<OperationType, Error>
     fn get_op_type(
         file: &mut RwLockWriteGuard<'_, File>,
         op_type_byte: u8,
@@ -249,6 +272,13 @@ impl OperationLogger {
             _ => Err(LoggerError::InvalidOperationCode(op_type_byte)),
         }
     }
+    /// #  Description
+    /// function calculates size of operation log
+    /// # Arguments
+    ///
+    /// * `log`: type of log
+    ///
+    /// returns: Result<usize, Error> (size of log)
     fn calc_op_log_size(log: &OperationType) -> usize {
         ID_SIZE
             + COMPLETED_SIZE
@@ -261,6 +291,13 @@ impl OperationLogger {
                 OperationType::Update(k, v) => k.len() + v.len() + SIZE_OF_USIZE * 2,
             }
     }
+    /// #  Description
+    /// function reads file and returns log found in it
+    /// # Arguments
+    ///
+    /// * `offset`: position to start reading from in the file
+    ///
+    /// returns: Result<OperationLog, Error>
     fn read_log_from_file(&self, offset: &usize) -> Result<OperationLog, LoggerError> {
         let mut file = self.log_file.write().unwrap();
         file.seek(io::SeekFrom::Start(*offset as u64))
@@ -300,6 +337,14 @@ impl OperationLogger {
             op_type,
         })
     }
+    /// #  Description
+    /// function writes operation into file
+    /// # Arguments
+    ///
+    /// * `file`: file to write into
+    /// * `op_type`: type of operation being written
+    ///
+    /// returns: Result<(), Error>
     fn write_op_type(
         file: &mut RwLockWriteGuard<'_, File>,
         op_type: &OperationType,
@@ -319,6 +364,13 @@ impl OperationLogger {
             }
         }
     }
+    /// #  Description
+    /// function writes log into file
+    /// # Arguments
+    ///
+    /// * `log`: log to write into
+    ///
+    /// returns: Result<usize, Error> (length of log)
     fn write_log(&mut self, log: &OperationLog) -> Result<usize, LoggerError> {
         let mut file = self.log_file.write().unwrap();
         let ret = file.metadata().unwrap().len();
@@ -340,7 +392,13 @@ impl OperationLogger {
 
         Ok(ret as usize)
     }
-
+    /// #  Description
+    /// function writes operation into file
+    /// # Arguments
+    ///
+    /// * `op_type`: type of operation to write
+    ///
+    /// returns: Result<OperationLog, Error> 
     pub fn log_operation(&mut self, op_type: OperationType) -> Result<OperationLog, LoggerError> {
         let mut ret = OperationLog {
             completed: false,
@@ -380,7 +438,13 @@ impl OperationLogger {
     pub fn get_id(&self) -> usize {
         self.id
     }
-
+    /// #  Description
+    /// function returns last completed operation
+    /// # Arguments
+    ///
+    /// * `start_offset`: where to start reading from
+    ///
+    /// returns: Result<OperationLog, Error> (last operation)
     pub fn get_last_completed_operation(
         &self,
         start_offset: &usize,
@@ -494,6 +558,13 @@ impl Restorer {
         })
     }
 
+    /// #  Description
+    /// function updates last completed operation
+    /// # Arguments
+    ///
+    /// * `op_logger`: previous last completed operation
+    ///
+    /// returns: Result<(), Error>
     pub fn update(&mut self, op_logger: &OperationLogger) -> Result<(), LoggerError> {
         let new_last_completed_log = op_logger.get_last_completed_operation(&self.last_op_start)?;
         let restorer_path_as_string = Self::get_restorer_path(&self.name);
@@ -553,6 +624,13 @@ impl Restorer {
     pub fn get_last_backed_operation_start(&self) -> usize {
         self.last_op_start
     }
+    /// #  Description
+    /// function returns all uncompleted operations
+    /// # Arguments
+    ///
+    /// * `op_logger`: log to get operations from
+    ///
+    /// returns: Result<Vec<OperationLog>, Error> (all uncompleted operations)
     pub fn get_un_completed_operations(
         &self,
         op_logger: &mut OperationLogger,

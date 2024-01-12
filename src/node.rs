@@ -14,6 +14,13 @@ pub struct Node {
 }
 
 impl Node {
+    /// #  Description
+    /// function merges two nodes together into a single node
+    /// # Arguments
+    ///
+    /// * `pager`: pager of the tree
+    ///
+    /// returns: Result<()>
     pub fn merge_nodes(&mut self, pager: &mut Pager) -> InternalResult<()> {
         let mut parent = self.get_parent(pager)?;
 
@@ -50,9 +57,23 @@ impl Node {
 
         Ok(())
     }
+    /// #  Description
+    /// function returns node that is parent to current node
+    /// # Arguments
+    ///
+    /// * `pager`: pager of the tree
+    ///
+    /// returns: Result<Node> (parent node)
     pub fn get_parent(&self, pager: &Pager) -> InternalResult<Node> {
         pager.read_node(self.parent_page_id)
     }
+    /// #  Description
+    /// function takes a value from another node and adds it to current node
+    /// # Arguments
+    ///
+    /// * `pager`: pager of the tree
+    ///
+    /// returns: Result<(), Error>
     pub fn borrow(&mut self, pager: &mut Pager) -> InternalResult<()> {
         let mut parent = self.get_parent(pager)?;
         let location_in_parent = parent
@@ -105,6 +126,12 @@ impl Node {
         pager.write_node(&self)?;
         Ok(())
     }
+    /// #  Description
+    /// function inserts value into node
+    /// # Arguments
+    ///
+    /// * `key`: key that value should be assigned to
+    /// * `value`: value to be inserted
     pub fn insert(&mut self, key: String, value: usize) {
         let mut i = 0;
 
@@ -115,6 +142,14 @@ impl Node {
         self.values.insert(i, value);
         self.keys.insert(i, key);
     }
+    /// #  Description
+    /// function returns value by key
+    /// functions returns None if there is no such key in node
+    /// # Arguments
+    ///
+    /// * `key`: key of the value
+    ///
+    /// returns: Result<&usize> (value)
     pub fn get(&self, key: String) -> Option<&usize> {
         let mut i = 0;
         while i < self.keys.len() && self.keys[i] < key {
@@ -134,6 +169,13 @@ impl Node {
             self.values.get(i)
         }
     }
+    /// #  Description
+    /// function returns index of key in node
+    /// # Arguments
+    ///
+    /// * `key`: key to find index of
+    ///
+    /// returns: Result<usize> (index of key)
     pub fn location(&self,key: &String) -> Option<usize> {
         let mut i = 0;
         while i < self.keys.len() && &self.keys[i] < key {
@@ -151,6 +193,12 @@ impl Node {
             Some(i)
         }
     }
+    /// #  Description
+    /// function updates value by key
+    /// # Arguments
+    ///
+    /// * `key`: key to update
+    /// * `value`: new value
     pub fn update(&mut self, key: String, value: usize) {
         let mut i = 0;
         while i < self.keys.len() && self.keys[i] < key {
@@ -165,6 +213,14 @@ impl Node {
             self.values[i] = value;
         }
     }
+    /// #  Description
+    /// function splits node into two nodes
+    /// # Arguments
+    ///
+    /// * `pager`: pager of the tree
+    /// * `t`: index where to split
+    ///
+    /// returns: Result<Node> (new node)
     pub fn split(&mut self, pager: &mut Pager, t: usize) -> InternalResult<Node> {
         let new_node_keys = self.keys.split_off(t);
         let new_node_values = self.values.split_off(t);
