@@ -7,6 +7,7 @@ pub enum JsonValidationError {
     ValueDoesNotMeetConstraint(JsonData, JsonData, Ordering),
     MissingProperty,
     IncorrectType(String, JsonType, JsonType),
+    ValueAllReadyExists(String),
 }
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum JsonConstraint {

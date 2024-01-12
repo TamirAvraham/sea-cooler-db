@@ -388,7 +388,7 @@ impl KeyValueStore {
         overwatch: &ThreadGuard<Overwatch<String>>,
         key: &String,
         new_value: String,
-    ) -> KvResult<Option<String>> {
+    ) -> KvResult<Option<(String,usize)>> {
         if key.len() > MAX_KEY_SIZE {
             {
                 let mut logger = logger.lock().unwrap();
@@ -422,12 +422,12 @@ impl KeyValueStore {
                 tree.update(key.clone(), &new_value)
             };
 
-            let ret = if let Some(ret_encrypted) = update? {
+            let ret = if let Some((ret_encrypted,new_location)) = update? {
                 Some(
-                    EncryptionService::get_instance()
+                    (EncryptionService::get_instance()
                         .read()
                         .unwrap()
-                        .decrypt(ret_encrypted, key),
+                        .decrypt(ret_encrypted, key),new_location)
                 )
             } else {
                 None
@@ -612,7 +612,7 @@ impl KeyValueStore {
     /// returns: ComputedValue<Option<String>> (promise to the new old value of the key if it had any)
     ///
 
-    pub fn update(&mut self, key: String, new_value: String) -> ComputedValue<Option<String>> {
+    pub fn update(&mut self, key: String, new_value: String) -> ComputedValue<Option<(String,usize)>> {
         let tree = Arc::clone(&self.tree);
         let logger = Arc::clone(&self.logger);
         let bloom_filter = Arc::clone(&self.bloom_filter);
@@ -826,7 +826,7 @@ mod tests {
                 format!("value_{}", i + 1),
             )
             .expect("cnat update");
-            assert_eq!(result, Some(format!("value_{}", i)));
+            assert_eq!(result.unwrap().0, format!("value_{}", i));
             let result = KeyValueStore::search_internal(
                 &tree,
                 &bloom_filter,
@@ -878,7 +878,7 @@ mod tests {
             old_values.push(result);
         }
         old_values.into_iter().enumerate().for_each(|(i, res)| {
-            assert_eq!(res.get(), Some(format!("value_{}", i)));
+            assert_eq!(res.get().unwrap().0, format!("value_{}", i));
         });
         for i in 0..10 {
             let result = kv.search(format!("key_{}", i));
@@ -907,8 +907,9 @@ mod tests {
         let name = "test".to_string();
         let mut kv = KeyValueStore::new(name);
         let mut results = vec![];
+        println!("starting inserts");
 
-        for i in 0..1000 {
+        for i in 0..DEFAULT_T*10_000 {
             println!("inserting i:{}", i);
             results.push(kv.insert(format!("key_{}", i), format!("value_{}", i)));
         }
@@ -916,6 +917,13 @@ mod tests {
         results.into_iter().for_each(|x| assert!(x.get().is_some()));
 
         println!("finished inserts");
+
+        let mut search_results = vec![];
+        for i in 0..DEFAULT_T*10_000 {
+            println!("searching for i:{}", i);
+            search_results.push(kv.search(format!("key_{}", i)));
+        }
+        search_results.into_iter().enumerate().for_each(|(x,i)| assert_eq!(i.get(), Some(format!("value_{}", x))));
         kv.erase()
     }
 }

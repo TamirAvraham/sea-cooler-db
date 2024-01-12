@@ -972,6 +972,15 @@ impl From<&JsonData> for String {
 mod tests {
     use super::*;
     #[test]
+    fn test_create_json() {
+        let mut json=JsonObject::new();
+        println!("json is: \n{}", JsonSerializer::serialize(json.clone()));
+        json.insert("name".to_string(), "John".to_string().into());
+        json.insert("age".to_string(), 30.into());
+        json.insert("city".to_string(), "New York".to_string().into());
+        println!("json is: \n{}", JsonSerializer::serialize(json.clone()));
+    }
+    #[test]
     fn test_easy_json_decode() {
         let json_data = r#"
         {

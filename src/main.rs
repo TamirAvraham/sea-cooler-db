@@ -13,7 +13,10 @@ mod validation_json;
 mod logger;
 mod overwatch;
 mod key_value_store;
+mod skip_list;
 mod collection;
+mod index;
+
 use std::io;
 use std::io::Write;
 use crate::key_value_store::KeyValueStore;
@@ -87,7 +90,7 @@ fn update(kv: &mut KeyValueStore) {
 
     let result=kv.update(key,value).get();
     if let Some(value) = result {
-        println!("old value was {}",value);
+        println!("old value was {}",value.0);
     }else {
         println!("key was not found");
     }

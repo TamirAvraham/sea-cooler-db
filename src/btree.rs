@@ -181,7 +181,7 @@ impl BPlusTree {
         pager: &mut Pager,
         node_page_id: usize,
         value: &[u8],
-    ) -> InternalResult<Option<Vec<u8>>> {
+    ) -> InternalResult<Option<(Vec<u8>,usize)>> {
         let mut node = pager.read_node(node_page_id)?;
         return match node.is_leaf {
             true => {
@@ -193,7 +193,7 @@ impl BPlusTree {
                     node.update(key, new_value_location);
                     pager.write_node(&node)?;
 
-                    Ok(Some(old_value))
+                    Ok(Some((old_value,new_value_location)))
                 } else {
                     Ok(None)
                 }
@@ -214,7 +214,7 @@ impl BPlusTree {
     /// * `value`: new value
     ///
     /// returns: Result<Option<Vec<u8, Global>>, Error> (old value)
-    pub fn update(&mut self, key: String, value: &[u8]) -> InternalResult<Option<Vec<u8>>> {
+    pub fn update(&mut self, key: String, value: &[u8]) -> InternalResult<Option<(Vec<u8>,usize)>> {
         Self::update_internal(key, &mut self.pager, self.root_page_id, value)
     }
 
@@ -762,7 +762,7 @@ mod tests {
             let res = tree
                 .update(key.clone(), new_value.as_bytes())
                 .expect(&err_msg);
-            assert_eq!(res, Some(old_value.as_bytes().to_vec()));
+            assert_eq!(res.unwrap().0, old_value.as_bytes().to_vec());
             let res = tree.search(key).expect(&err_msg);
             assert_eq!(res, Some(new_value.as_bytes().to_vec()), "{}", err_msg);
         });
