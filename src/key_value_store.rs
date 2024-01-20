@@ -3,7 +3,7 @@ use std::{
     io::{self, Read},
     sync::{Arc, Mutex, RwLock, RwLockReadGuard},
 };
-const BLOOM_FILTER_PATH: &str = "bloom_filter.dat";
+pub const BLOOM_FILTER_PATH: &str = "bloom_filter.dat";
 const MIN_INSERTS_TO_WRITE_BLOOM_FILTER_ON_DISK: usize = 50;
 use crate::{
     bloom_filter::{self, BloomFilter, M},
@@ -72,10 +72,7 @@ impl KeyValueStore {
             .read(true)
             .open(format!("{}.{}", name, BLOOM_FILTER_PATH))?;
         file.read_exact(&mut bloom_filter_data)?;
-        println!(
-            "read bloom filter array all data is false? {}",
-            bloom_filter_data.iter().all(|&x| x == 0x00).to_string()
-        );
+
         let mut bit_array = vec![false; M as usize];
 
         for (&byte, bit) in bloom_filter_data.iter().zip(bit_array.iter_mut()) {
@@ -112,7 +109,6 @@ impl KeyValueStore {
             bloom_filter: Arc::new(RwLock::new(
                 Self::load_bloom_filter_from_file(&name).or_else(
                     |e| -> Result<BloomFilter, KeyValueError> {
-                        println!("had an error loading the bloom filter {:?}", e);
                         Ok(BloomFilter::new())
                     },
                 )?,

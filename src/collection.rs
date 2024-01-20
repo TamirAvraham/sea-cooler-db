@@ -1,4 +1,4 @@
-use crate::json::{JsonDeserializer, JsonError};
+use crate::json::{JsonData, JsonDeserializer, JsonError};
 use crate::skip_list::{SkipList, SkipListError};
 use crate::{
     json::{JsonObject, JsonSerializer},
@@ -6,12 +6,14 @@ use crate::{
     validation_json::{JsonValidationError, ValidationJson},
 };
 use std::collections::{HashMap, HashSet};
-
-enum CollectionError {
+use std::fmt::Display;
+#[derive(Debug)]
+pub enum CollectionError {
     InvalidData(JsonValidationError),
     KeyValueError(KeyValueError),
     IndexError(SkipListError),
     InvalidJson(JsonError),
+    InternalError
 }
 impl From<JsonValidationError> for CollectionError {
     fn from(item: JsonValidationError) -> Self {
@@ -34,9 +36,9 @@ impl From<KeyValueError> for CollectionError {
         CollectionError::KeyValueError(item)
     }
 }
-struct Collection {
-    name: String,
-    structure: Option<ValidationJson>,
+pub struct Collection {
+    pub name: String,
+    pub structure: Option<ValidationJson>,
 }
 /*
 todo:
@@ -44,7 +46,16 @@ implement ranged search
 decide on a data structure for indexes
 implemnt index data structure
  */
-
+impl Display for Collection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut self_as_json = JsonObject::new();
+        self_as_json.insert("structure".to_string(), match &self.structure {
+            None => { JsonData::new_null() }
+            Some(structure) => { JsonData::infer_from_string(structure.to_string()).unwrap() }
+        });
+        write!(f, "{}", JsonSerializer::serialize(self_as_json))
+    }
+}
 impl Collection {
     pub fn new(structure: Option<ValidationJson>, name: String) -> Self {
         Self { name, structure }
@@ -158,6 +169,8 @@ impl Collection {
                     )?;
                 }
             }
+        }else {
+            value_location.get().ok_or(CollectionError::InternalError)?;
         }
 
         Ok(())

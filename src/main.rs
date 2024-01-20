@@ -16,6 +16,7 @@ mod key_value_store;
 mod skip_list;
 mod collection;
 mod index;
+mod database;
 
 use std::io;
 use std::io::Write;
@@ -40,6 +41,7 @@ fn help(){
             delete -> delete a key from the store
             range -> get a range of values from the database
             erase -> resets the database
+            exit -> exit the program
             "#);
 }
 

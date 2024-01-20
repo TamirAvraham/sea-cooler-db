@@ -2,6 +2,9 @@ use std::{
     collections::HashMap,
     ops::{Index, IndexMut},
 };
+use std::fmt::Display;
+use crate::json::JsonError::ParseError;
+
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
 pub enum JsonType {
     String,
@@ -11,6 +14,42 @@ pub enum JsonType {
     Array,
     Object,
     Null,
+}
+
+impl TryFrom<JsonData> for JsonType {
+    type Error = JsonError;
+
+    fn try_from(value: JsonData) -> Result<Self, Self::Error> {
+        if let Self::String = value.data_type {
+            match value.as_string().as_str() {
+                "array"=> Ok(Self::Array),
+                "object"=> Ok(Self::Object),
+                "null"=> Ok(Self::Null),
+                "float"=> Ok(Self::Float),
+                "bool"=> Ok(Self::Boolean),
+                "string"=> Ok(Self::String),
+                "int"=> Ok(Self::Integer),
+                _=> return Err(JsonError::ParseError),
+            }
+        }else {
+            return Err(JsonError::ParseError);
+        }
+    }
+}
+
+impl Display for JsonType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let str = match self {
+            JsonType::String => "string",
+            JsonType::Integer => "int",
+            JsonType::Boolean => "bool",
+            JsonType::Float => "float",
+            JsonType::Array => "array",
+            JsonType::Object => "object",
+            JsonType::Null => "null",
+        }.to_string();
+        write!(f, "{}", str)
+    }
 }
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum JsonError {
@@ -22,6 +61,14 @@ pub struct JsonData {
     data_type: JsonType,
 }
 
+impl Display for JsonData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut json = JsonObject::new();
+        json.insert("data".to_string(), JsonData::new(self.data.clone(), self.data_type));
+        json.insert("type".to_string(), JsonData::from_string(self.data_type.to_string()));
+        write!(f, "{}", JsonSerializer::serialize(json))
+    }
+}
 pub struct JsonDeserializer {}
 pub struct JsonSerializer {}
 
@@ -398,9 +445,14 @@ impl JsonDeserializer {
     ///
 
     pub fn deserialize(mut data: String) -> Result<JsonObject, JsonError> {
+        if data=="" {
+            return Err(ParseError)
+        }
         let mut ret = JsonObject::new();
         data = Self::clean_json(&data);
-
+        if data == "{}" {
+            return Ok(ret);
+        }
         while data != "" {
             let (key, value, pair_end) = Self::get_line(&data)?;
             ret.insert(key, JsonData::infer_from_string(value)?);
@@ -434,6 +486,9 @@ impl JsonSerializer {
     /// returns: String
     ///
     fn serialize_with_spacer(json: JsonObject, spacer: u8, new_lines: bool) -> String {
+        if json.map.is_empty() {
+            return "{}".to_string();
+        }
         let mut ret = "{".to_string();
         if new_lines {
             ret.push('\n')
@@ -465,6 +520,15 @@ impl JsonSerializer {
             }
         }
         ret.push('}');
+        ret
+    }
+    pub fn serialize_array(json: JsonArray) -> String {
+        let mut ret = "[".to_string();
+        for element in json.into_iter() {
+            ret.push_str(&format!("{},", element.to_json_string(0, false)));
+        }
+        ret.pop();
+        ret.push(']');
         ret
     }
 }
@@ -533,7 +597,7 @@ impl JsonData {
     /// * `new_lines`: add a new line at the end
     /// # Returns
     ///  String (json string)
-    fn to_json_string(&self, spacer: u8, new_lines: bool) -> String {
+    pub fn to_json_string(&self, spacer: u8, new_lines: bool) -> String {
         match self.data_type {
             JsonType::String => self.data.clone(),
             JsonType::Integer => self.data.clone(),
@@ -965,6 +1029,17 @@ impl TryFrom<&JsonData> for JsonObject {
 impl From<&JsonData> for String {
     fn from(item: &JsonData) -> Self {
         item.data.replace("\"", "")
+    }
+}
+impl From<JsonObject> for JsonData {
+    fn from(value: JsonObject) -> Self {
+        Self::infer_from_string(JsonSerializer::serialize(value)).unwrap()
+    }
+}
+
+impl From<JsonArray> for JsonData {
+    fn from(value: JsonArray) -> Self {
+        Self::infer_from_string(JsonSerializer::serialize_array(value)).unwrap()
     }
 }
 

@@ -6,8 +6,8 @@ use std::sync::{Mutex, RwLock};
 use std::usize;
 use crate::skip_list::NodeType::Deleted;
 const NULL_NODE_ID:usize=usize::MAX;
-const CONFIG_FILE_ENDING:&str = ".skiplist.config";
-const MAIN_FILE_ENDING:&str = ".skiplist.dat";
+pub const SKIP_LIST_CONFIG_FILE_ENDING:&str = ".skiplist.config";
+pub const SKIP_LIST_MAIN_FILE_ENDING:&str = ".skiplist.dat";
 const SIZE_OF_USIZE:usize=size_of::<usize>();
 const SIZE_OF_TYPE:usize=size_of::<u8>();
 const SIZE_OF_KEY_SIZE:usize=SIZE_OF_USIZE;
@@ -127,8 +127,8 @@ impl SkipListFileHandler {
         open_options.read(true).write(true).create(true);
 
         Ok(SkipListFileHandler {
-            config_file: Mutex::new(open_options.open(&format!("{}{}", name, CONFIG_FILE_ENDING))?),
-            main_file: Mutex::new(open_options.open(&format!("{}{}", name, MAIN_FILE_ENDING))?),
+            config_file: Mutex::new(open_options.open(&format!("{}{}", name, SKIP_LIST_CONFIG_FILE_ENDING))?),
+            main_file: Mutex::new(open_options.open(&format!("{}{}", name, SKIP_LIST_MAIN_FILE_ENDING))?),
         })
     }
     #[inline]
@@ -713,13 +713,13 @@ mod skiplist_tests {
     const TEST_NAME: &str = "test_skiplist";
 
     fn setup() {
-        let _ = fs::remove_file(format!("{}{}", TEST_NAME, CONFIG_FILE_ENDING));
-        let _ = fs::remove_file(format!("{}{}", TEST_NAME, MAIN_FILE_ENDING));
+        let _ = fs::remove_file(format!("{}{}", TEST_NAME, SKIP_LIST_CONFIG_FILE_ENDING));
+        let _ = fs::remove_file(format!("{}{}", TEST_NAME, SKIP_LIST_MAIN_FILE_ENDING));
     }
 
     fn teardown() {
-        let _ = fs::remove_file(format!("{}{}", TEST_NAME, CONFIG_FILE_ENDING));
-        let _ = fs::remove_file(format!("{}{}", TEST_NAME, MAIN_FILE_ENDING));
+        let _ = fs::remove_file(format!("{}{}", TEST_NAME, SKIP_LIST_CONFIG_FILE_ENDING));
+        let _ = fs::remove_file(format!("{}{}", TEST_NAME, SKIP_LIST_MAIN_FILE_ENDING));
     }
 
     #[test]
