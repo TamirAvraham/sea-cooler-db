@@ -622,6 +622,16 @@ impl JsonData {
     }
 }
 //all into
+impl Into<JsonData> for u8 {
+    fn into(self) -> JsonData {
+        JsonData::from_int(self as i32)
+    }
+}
+impl Into<JsonData> for u16 {
+    fn into(self) -> JsonData {
+        JsonData::from_int(self as i32)
+    }
+}
 
 impl Into<JsonData> for i32 {
     fn into(self) -> JsonData {
@@ -814,16 +824,7 @@ impl TryFrom<JsonData> for bool {
         Ok(value.data == "true")
     }
 }
-impl TryFrom<JsonData> for JsonArray {
-    type Error = JsonError;
 
-    fn try_from(value: JsonData) -> Result<Self, Self::Error> {
-        if value.data_type != JsonType::Array {
-            return Err(JsonError::ParseError);
-        }
-        JsonDeserializer::deserialize_array(&value.data)
-    }
-}
 impl TryFrom<JsonData> for JsonObject {
     type Error = JsonError;
 
@@ -1036,11 +1037,29 @@ impl From<JsonObject> for JsonData {
         Self::infer_from_string(JsonSerializer::serialize(value)).unwrap()
     }
 }
+impl<T> From<Vec<T>> for JsonData where T: Into<JsonData> {
+    fn from(vec: Vec<T>) -> Self {
+        let mut array = JsonArray::new();
+        for item in vec {
+            array.push(item.into());
+        }
+        JsonData::new(JsonSerializer::serialize_array(array), JsonType::Array)
 
-impl From<JsonArray> for JsonData {
-    fn from(value: JsonArray) -> Self {
-        Self::infer_from_string(JsonSerializer::serialize_array(value)).unwrap()
     }
+}
+
+impl<T> TryFrom<JsonData> for Vec<T> where T:TryFrom<JsonData> {
+    type Error = JsonError;
+    fn try_from(json: JsonData) -> Result<Self, Self::Error> {
+        let mut vec = Vec::new();
+        if json.data_type == JsonType::Array {
+            for item in JsonDeserializer::deserialize_array(&json.data)? {
+                vec.push(T::try_from(item).map_err(|_| JsonError::ParseError)?);
+            }
+        }
+        Ok(vec)
+    }
+
 }
 
 #[cfg(test)]
@@ -1112,6 +1131,12 @@ mod tests {
 
         println!("json is \n{}", JsonSerializer::serialize(json))
     }
+    #[test]
+    fn test_array_test() {
+        let mut array = vec![1u8, 2, 3, 4, 5];
+        let mut json:JsonData=array.try_into().unwrap();
+        println!("json is \n{}", json.as_string());
+    }
 }
 
-//todo add labels
+

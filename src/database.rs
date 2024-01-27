@@ -34,6 +34,7 @@ struct DataBase {
     collections: Vec<Collection>,
     key_value_store: KeyValueStore,
     index: SkipList,
+
     name: String,
 }
 
