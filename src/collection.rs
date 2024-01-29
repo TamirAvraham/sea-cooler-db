@@ -194,14 +194,16 @@ impl Collection {
     ) -> Result<(), CollectionError> {
         if let Some(structure) = &self.structure {
             // update index
-            let value_locations = self.search_index(&self.name, record_name, index)?.unwrap();
-            for validation_property in structure.get_all_props() {
-                self.delete_index(
-                    &validation_property.name,
-                    &record_name,
-                    index,
-                    value_locations.clone(),
-                )?;
+            let value_locations = self.search_index(&self.name, record_name, index)?;
+            if let Some(value_locations) = value_locations {
+                for validation_property in structure.get_all_props() {
+                    self.delete_index(
+                        &validation_property.name,
+                        &record_name,
+                        index,
+                        value_locations.clone(),
+                    )?;
+                }
             }
         }
         kv.delete(format!("{}_{}", self.name, record_name));

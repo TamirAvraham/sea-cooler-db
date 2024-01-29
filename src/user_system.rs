@@ -2,12 +2,13 @@ use crate::encryption::EncryptionService;
 use crate::json::{JsonDeserializer, JsonError, JsonObject, JsonSerializer};
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
+use std::sync::{Arc, RwLock};
 use crate::key_value_store::KeyValueStore;
 
 pub const PASS_HASH_VALUE: &str = "validator";
 const PRE_DEFINED_USER_TYPES_INTERNAL_ERROR_MESSAGE:&str ="there was an internal error in the database for changing user permissions";
 #[derive(Debug,PartialEq)]
-enum UserSystemError {
+pub enum UserSystemError {
     PermissionError,
     ImproperJsonStructure,
     UserAlreadyExists,
@@ -82,20 +83,20 @@ impl Display for DataBasePermission {
         write!(f, "{}", str)
     }
 }
-enum UserType {
+pub enum UserType {
     Admin,
     User,
     Guest,
 }
 
 #[derive(PartialEq,Debug, Clone)]
-struct UserPermissions {
+pub struct UserPermissions {
     database_permissions: Option<Vec<DataBasePermission>>,
     specific_collections:HashMap<String, Option<Vec<CollectionPermission>>>,
     all_collections:Option<Vec<CollectionPermission>>,
 }
 #[derive(Debug,PartialEq,Clone)]
-struct User {
+pub struct User {
     username: String,
     password: Vec<u8>,
     user_permissions: UserPermissions,
@@ -371,7 +372,7 @@ mod user_tests {
 }
 
 
-struct UserSystem {
+pub struct UserSystem {
     logged_in_user:Option<User>,
 }
 
@@ -447,7 +448,7 @@ impl UserSystem {
 
 impl User{
     pub fn is_admin(&self)->bool {
-        self.user_permissions.database_permissions.is_some() && self.user_permissions.all_collections.is_some() && self.user_permissions.specific_collections.is_empty()
+        self.user_permissions.database_permissions.is_none() && self.user_permissions.all_collections.is_none() && self.user_permissions.specific_collections.is_empty()
     }
     fn can_do_for_collection(&self,collection_name:&String,prem:&CollectionPermission)->bool {
         if let Some(collection_settings) = self.user_permissions.specific_collections.get(collection_name) {
@@ -521,5 +522,17 @@ mod user_system_tests {
         assert_eq!(user_system.login(username.clone(), password.clone(), &kv),Ok(()));
         assert_eq!(user_system.get_logged_in_user().unwrap().username,username);
         kv.erase()
+    }
+}
+
+static mut  SINGELTON:Option<Arc<RwLock<UserSystem>>> = None;
+impl UserSystem {
+    pub fn get_instance()->&'static Arc<RwLock<UserSystem>> {
+        unsafe {
+            if SINGELTON.is_none() {
+                SINGELTON = Some(Arc::new(RwLock::new(UserSystem::new())));
+            }
+            SINGELTON.as_ref().unwrap()
+        }
     }
 }
