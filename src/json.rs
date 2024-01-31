@@ -1137,6 +1137,12 @@ mod tests {
         let mut json:JsonData=array.try_into().unwrap();
         println!("json is \n{}", json.as_string());
     }
+    #[test]
+    fn test_single_json() {
+        let mut json=JsonObject::new();
+        json.insert("test".to_string(),JsonData::from_string("test".to_string()));
+        println!("json is: \n{}", JsonSerializer::serialize(json.clone()));
+    }
 }
 
 
