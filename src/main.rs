@@ -20,9 +20,11 @@ mod database;
 mod user_system;
 mod http_server;
 mod radix_tree;
+mod database_api;
 
 use std::io;
 use std::io::Write;
+use crate::database::DataBase;
 use crate::key_value_store::KeyValueStore;
 
 fn get_user_input()->String{
@@ -67,7 +69,7 @@ fn main() {
             "exit" => println!("bye bye"),
             "erase" => {
                 kv.erase();
-                kv=KeyValueStore::new(KV_NAME.to_string());
+                break;
             },
             _=> println!("invalid command"),
         }
@@ -126,4 +128,11 @@ fn insert(kv:&mut KeyValueStore){
     let value=get_user_input();
 
     kv.insert(key,value).get();
+}
+fn login(db:&mut DataBase){
+    print!("enter username:");
+    let username=get_user_input();
+    print!("enter password:");
+    let password=get_user_input();
+    db.login(username, password);
 }

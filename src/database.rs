@@ -12,7 +12,7 @@ use crate::user_system::{User, UserPermissions, UserSystem, UserSystemError};
 
 const DATABASE_CONFIG_ENDING: &str = ".config.json";
 #[derive(Debug)]
-enum DataBaseError {
+pub enum DataBaseError {
     FileError(std::io::Error),
     CollectionError(CollectionError),
     JsonError(JsonError),
@@ -46,7 +46,7 @@ impl From<CollectionError> for DataBaseError {
     }
 }
 
-struct DataBase {
+pub struct DataBase {
     collections: Vec<Collection>,
     key_value_store: KeyValueStore,
     index: SkipList,
@@ -90,9 +90,9 @@ impl DataBase {
         Ok(Self::try_from(file_data_as_json)?)
     }
     #[inline]
-    fn check_permission<T>(&self,f:T) -> Res<()> where T:FnOnce(&User)->bool
+    fn check_permission<T>(&self,f:T,user_id:u128) -> Res<()> where T:FnOnce(&User)->bool
     {
-        if let Some(user)=UserSystem::get_instance().read().unwrap().get_logged_in_user() {
+        if let Ok(user)=UserSystem::get_instance().read().unwrap().get_logged_in_user(user_id) {
             if !f(&user) {
                 return Err(DataBaseError::PermissionError);
             }
@@ -106,16 +106,18 @@ impl DataBase {
         Ok(if let Ok(db) = Self::read_from_file(&name) {
             db
         } else {
-            Self {
+            let ret=Self {
                 collections: Vec::new(),
                 key_value_store: KeyValueStore::new(format!("{} storage engine", name)),
                 index: SkipList::new(&format!("{} index", name))?,
                 name,
-            }
+            };
+            ret.save()?;
+            ret
         })
     }
-    pub fn erase(self) -> Res<()> {
-        self.check_permission(User::is_admin)?;
+    pub fn erase(self,user_id:u128) -> Res<()> {
+        self.check_permission(User::is_admin,user_id)?;
         fs::remove_file(format!("{}{}", self.name, DATABASE_CONFIG_ENDING))?;
         fs::remove_file(format!("{} index{}", self.name, SKIP_LIST_CONFIG_FILE_ENDING))?;
         fs::remove_file(format!("{} index{}", self.name, SKIP_LIST_MAIN_FILE_ENDING))?;
@@ -123,14 +125,14 @@ impl DataBase {
         fs::remove_file(format!("{} storage engine.{}", self.name,BLOOM_FILTER_PATH))?;
         Ok(())
     }
-    pub fn create_collection(&mut self, name: String, structure: Option<ValidationJson>)->Result<(),DataBaseError>{
-        self.check_permission(|user| user.can_create())?;
+    pub fn create_collection(&mut self, name: String, structure: Option<ValidationJson>,user_id:u128)->Result<(),DataBaseError>{
+        self.check_permission(|user| user.can_create(),user_id)?;
         let collection = Collection::new(structure, name);
         self.collections.push(collection);
         self.save()?;
         Ok(())
     }
-    pub fn get_collection<'a>(collections: &'a Vec<Collection>, name: &'a String) -> Option<&'a Collection> {
+    fn get_collection_internal<'a>(collections: &'a Vec<Collection>, name: &'a String) -> Option<&'a Collection> {
         collections
             .iter()
             .find(|&collection| &collection.name == name)
@@ -140,26 +142,26 @@ impl DataBase {
             .iter_mut()
             .find(|collection| &collection.name == name)
     }
-    pub fn insert_into_collection(&mut self, collection_name: &String,key_name:String, data: JsonObject) -> Result<(),DataBaseError>{
-        self.check_permission(|user| user.can_insert(collection_name))?;
+    pub fn insert_into_collection(&mut self, collection_name: &String,key_name:String, data: JsonObject,user_id:u128) -> Result<(),DataBaseError>{
+        self.check_permission(|user| user.can_insert(collection_name),user_id)?;
         let collection = Self::get_mut_collection(&mut self.collections,collection_name).unwrap();
         collection.insert(key_name, data,&mut self.key_value_store,&mut self.index)?;
         Ok(())
     }
-    pub fn get_from_collection(&self, collection_name: &String, key_name: String) -> Result<Option<JsonObject>,DataBaseError>{
-        self.check_permission(|user| user.can_read(collection_name))?;
-        let collection = Self::get_collection(&self.collections,collection_name).unwrap();
+    pub fn get_from_collection(&self, collection_name: &String, key_name: String,user_id:u128) -> Result<Option<JsonObject>,DataBaseError>{
+        self.check_permission(|user| user.can_read(collection_name),user_id)?;
+        let collection = Self::get_collection_internal(&self.collections, collection_name).unwrap();
         Ok(collection.search(key_name, &self.key_value_store)?)
 
     }
-    pub fn delete_from_collection(&mut self, collection_name: &String, key_name: String) -> Result<(),DataBaseError>{
-        self.check_permission(|user| user.can_delete(collection_name))?;
+    pub fn delete_from_collection(&mut self, collection_name: &String, key_name: String,user_id:u128) -> Result<(),DataBaseError>{
+        self.check_permission(|user| user.can_delete(collection_name),user_id)?;
         let collection = Self::get_mut_collection(&mut self.collections,collection_name).unwrap();
         collection.delete(&key_name, &mut self.key_value_store, &mut self.index)?;
         Ok(())
     }
-    pub fn update_collection(&mut self, collection_name: &String, key_name: String, data: JsonObject) -> Result<(),DataBaseError>{
-        self.check_permission(|user| user.can_update(collection_name))?;
+    pub fn update_collection(&mut self, collection_name: &String, key_name: String, data: JsonObject,user_id:u128) -> Result<(),DataBaseError>{
+        self.check_permission(|user| user.can_update(collection_name),user_id)?;
         let collection = Self::get_mut_collection(&mut self.collections,collection_name).unwrap();
         collection.update(key_name, &mut self.key_value_store, &mut self.index,data)?;
         Ok(())
@@ -167,20 +169,23 @@ impl DataBase {
     pub fn drop_collection(&mut self, name: String) {
         todo!()
     }
-    pub fn signup(&mut self,username:String,password:String,user_permissions: UserPermissions)->Result<(),DataBaseError>{
+    pub fn signup(&mut self,username:String,password:String,user_permissions: UserPermissions)->Result<u128,DataBaseError>{
         let mut user_system = UserSystem::get_instance().write().unwrap();
-        user_system.signup_with_no_type(username,password,user_permissions,&mut self.key_value_store)?;
-        Ok(())
+        Ok(user_system.signup_with_no_type(username, password, user_permissions, &mut self.key_value_store)?)
+
     }
-    pub fn login(&mut self,username:String,password:String)->Result<(),DataBaseError>{
+    pub fn login(&mut self,username:String,password:String)->Result<u128,DataBaseError>{
         let mut user_system = UserSystem::get_instance().write().unwrap();
-        user_system.login(username,password,&mut self.key_value_store)?;
-        Ok(())
+        Ok(user_system.login(username, password, &mut self.key_value_store)?)
     }
-    pub fn logout(&mut self)->Result<(),DataBaseError>{
-        let mut user_system = UserSystem::get_instance().write().unwrap();
-        user_system.logout()?;
-        Ok(())
+    pub fn logout(&mut self,user_id:u128){
+        UserSystem::get_instance().write().unwrap().logout(user_id);
+    }
+    pub fn get_all_collections(&self)->&Vec<Collection>{
+        &self.collections
+    }
+    pub fn get_collection<'a>(&'a self, name: &'a String)->Option<&Collection>{
+        Self::get_collection_internal(&self.collections, name)
     }
 }
 
@@ -199,7 +204,7 @@ impl TryFrom<JsonObject> for DataBase {
                 if value["structure"].is_null() {
                     None
                 } else {
-                    Some(ValidationJson::from(value["structure"].as_object()?))
+                    Some(ValidationJson::try_from(value["structure"].as_object()?)?)
                 },
                 name,
             ))
@@ -223,12 +228,16 @@ mod tests {
     use crate::user_system::UserType;
 
     #[cfg(test)]
-    fn set_up_users(data_base:&mut DataBase) {
-        data_base.signup("admin".to_string(),"admin".to_string(),UserType::Admin.get_permissions()).unwrap();
+    fn set_up_users(data_base:&mut DataBase) -> u128 {
+        if let Ok(ret) = data_base.signup("admin".to_string(),"admin".to_string(),UserType::Admin.get_permissions()) {
+            ret
+        }else {
+            log_in(data_base)
+        }
     }
     #[cfg(test)]
-    fn log_in(data_base:&mut DataBase) {
-        data_base.login("admin".to_string(),"admin".to_string()).unwrap();
+    fn log_in(data_base:&mut DataBase)->u128 {
+        data_base.login("admin".to_string(),"admin".to_string()).unwrap()
     }
     #[test]
     fn test_db_create() {
@@ -246,16 +255,17 @@ mod tests {
         test_collection_2_template.add(test_collection_2_template_jvp_1);
 
         let mut db = DataBase::new("test db".to_string()).unwrap();
-        set_up_users(&mut db);
-        db.create_collection("test collection 1".to_string(), None).expect("cant create collection 1");
+        let id=set_up_users(&mut db);
+        db.create_collection("test collection 1".to_string(), None,id).expect("cant create collection 1");
         db.create_collection(
             "test collection 2".to_string(),
             Some(test_collection_2_template),
+            id
         ).expect("cant create collection 2");
 
         println!("{}", db);
 
-        db.erase().unwrap();
+        db.erase(id).unwrap();
     }
     #[test]
     fn test_reload_db() {
@@ -271,31 +281,39 @@ mod tests {
                 Ordering::Less,
             ));
         test_collection_2_template.add(test_collection_2_template_jvp_1);
-
+        let mut test_json=JsonObject::new();
+        test_json.insert("test value".to_string(), JsonData::from_string("test reload db".to_string()));
         {
             let mut db = DataBase::new("test reload db".to_string()).unwrap();
-            set_up_users(&mut db);
-            db.create_collection("test collection 1".to_string(), None).expect("cant create collection 1");
+            let id=set_up_users(&mut db);
+            db.create_collection("tc1".to_string(), None,id).expect("cant create collection 1");
             db.create_collection(
                 "test collection 2".to_string(),
                 Some(test_collection_2_template.clone()),
+                id
             ).expect("cant create collection 2");
-            db.logout().unwrap();
+
+            db.insert_into_collection(&"tc1".to_string(),"test".to_string(),test_json.clone(),id).expect("cant insert");
+            db.logout(id);
 
         }
         let mut db = DataBase::new("test reload db".to_string()).unwrap();
-        log_in(&mut db);
+        let id=log_in(&mut db);
         assert_eq!(db.collections.len(), 2);
-        assert!(db.collections.iter().find(|c| c.name == "test collection 1").is_some());
+        assert!(db.collections.iter().find(|c| c.name == "tc1").is_some());
         assert!(db.collections.iter().find(|c| c.name == "test collection 2").is_some());
         assert_eq!(db.collections.iter().find(|c| c.name == "test collection 2").as_ref().unwrap().structure.as_ref().unwrap(),&test_collection_2_template);
-        db.erase().unwrap();
+        let test=db.get_from_collection(&"tc1".to_string(), "test".to_string(), id).expect("cant get test");
+        assert!(test.is_some());
+        let test=test.unwrap();
+        assert_eq!(test, test_json);
+        db.erase(id).unwrap();
     }
     #[test]
     fn erase_test_db() {
-        let mut db=DataBase::new("test db".to_string()).unwrap();
-        log_in(&mut db);
-        db.erase().unwrap();
+        let mut db=DataBase::new("api_test_db".to_string()).unwrap();
+        let id=set_up_users(&mut db);
+        db.erase(id).unwrap();
     }
     #[test]
     fn test_use_collections() {
@@ -315,12 +333,15 @@ mod tests {
             ));
         test_collection_2_template.add(test_collection_2_template_jvp_1);
         test_collection_2_template.add(test_collection_2_template_jvp_2);
+
         let mut db = DataBase::new("test db".to_string()).unwrap();
-        set_up_users(&mut db);
-        db.create_collection("collection1".to_string(), None).expect("collection1");
+        let id=set_up_users(&mut db);
+
+        db.create_collection("collection1".to_string(), None,id).expect("collection1");
         db.create_collection(
             "collection2".to_string(),
             Some(test_collection_2_template),
+            id
         ).expect("collection2");
 
         let range=30;
@@ -330,26 +351,26 @@ mod tests {
         for i in 0..range {
             let mut json=JsonObject::new();
             json.insert(format!("value_number_{}",i),i.into());
-            db.insert_into_collection(&first_collection_name,i.to_string(), json).expect("insert failed");
+            db.insert_into_collection(&first_collection_name,i.to_string(), json,id).expect("insert failed");
         }
 
         for i in 0..range {
-            let json=db.get_from_collection(&first_collection_name,i.to_string()).expect("get failed");
+            let json=db.get_from_collection(&first_collection_name,i.to_string(),id).expect("get failed");
             assert!(json.is_some());
             assert_eq!(json.unwrap().get(&format!("value_number_{}",i)).unwrap().as_int().unwrap(),i);
         }
         for i in 0..range {
-            db.delete_from_collection(&first_collection_name,i.to_string()).expect("delete failed");
+            db.delete_from_collection(&first_collection_name,i.to_string(),id).expect("delete failed");
         }
 
         for i in 0..range {
             let mut json=JsonObject::new();
             json.insert("age".to_string(), i.into());
             json.insert("name".to_string(), JsonData::new_null());
-            db.insert_into_collection(&second_collection_name,i.to_string(), json).expect("insert failed");
+            db.insert_into_collection(&second_collection_name,i.to_string(), json,id).expect("insert failed");
         }
         for i in 0..range {
-            let json=db.get_from_collection(&second_collection_name,i.to_string()).expect("get failed");
+            let json=db.get_from_collection(&second_collection_name,i.to_string(),id).expect("get failed");
             assert!(json.is_some());
             let json=json.unwrap();
             assert_eq!(json.get(&"age".to_string()).unwrap().as_int().unwrap(), i);
@@ -360,10 +381,10 @@ mod tests {
             json.insert("age".to_string(), (i+range).into());
             json.insert("name".to_string(), "beni".to_string().into());
             json.insert("shani".to_string(), "this is dumb".to_string().into());
-            db.update_collection(&second_collection_name,i.to_string(), json).expect("update failed");
+            db.update_collection(&second_collection_name,i.to_string(), json,id).expect("update failed");
         }
         for i in 0..range {
-            let json=db.get_from_collection(&second_collection_name,i.to_string()).expect("get failed");
+            let json=db.get_from_collection(&second_collection_name,i.to_string(),id).expect("get failed");
             assert!(json.is_some());
             let json=json.unwrap();
             assert_eq!(json.get(&"age".to_string()).unwrap().as_int().unwrap(), i+range);
@@ -371,23 +392,23 @@ mod tests {
             assert_eq!(json.get(&"shani".to_string()).unwrap().as_string(), "this is dumb".to_string());
         }
         for i in 0..range {
-            db.delete_from_collection(&second_collection_name,i.to_string()).expect("delete failed");
+            db.delete_from_collection(&second_collection_name,i.to_string(),id).expect("delete failed");
         }
 
         for i in 0..range{
-            let json=db.get_from_collection(&first_collection_name,i.to_string()).expect("get failed");
+            let json=db.get_from_collection(&first_collection_name,i.to_string(),id).expect("get failed");
             assert!(json.is_none());
         }
         for i in 0..range{
-            let json=db.get_from_collection(&second_collection_name,i.to_string()).expect("get failed");
+            let json=db.get_from_collection(&second_collection_name,i.to_string(),id).expect("get failed");
             assert!(json.is_none());
         }
         for i in 0..range{
             let mut json=JsonObject::new();
             json.insert("age".to_string(), (i+100).into());
             json.insert("name".to_string(), "beni".to_string().into());
-            assert!(db.insert_into_collection(&second_collection_name,i.to_string(), json).is_err());
+            assert!(db.insert_into_collection(&second_collection_name,i.to_string(), json,id).is_err());
         }
-        db.erase().unwrap();
+        db.erase(id).unwrap();
     }
 }

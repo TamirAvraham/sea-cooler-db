@@ -83,6 +83,7 @@ impl Display for DataBasePermission {
         write!(f, "{}", str)
     }
 }
+#[derive(Clone, Copy)]
 pub enum UserType {
     Admin,
     User,
@@ -373,25 +374,35 @@ mod user_tests {
 
 
 pub struct UserSystem {
-    logged_in_user:Option<User>,
+    logged_in_users:HashMap<u128,User>,
+    current_user_id:u128,
 }
 
 impl UserSystem {
     fn new()->Self{
         Self{
-            logged_in_user:None,
+            logged_in_users:HashMap::new(),
+            current_user_id:0,
         }
+    }
+    fn is_user_logged_in(&self, username:&String)->bool{
+        self.logged_in_users.iter().find(|(_,user)| &user.username == username).is_some()
+    }
+    fn add_user_to_logged_in_users(&mut self, user:User)->u128{
+        self.current_user_id += 1;
+        self.logged_in_users.insert(self.current_user_id, user);
+        self.current_user_id
     }
     fn get_user_from_db(&self,username:&String,kv:&KeyValueStore)->Result<User,UserSystemError>{
         let user_json = kv.search(format!("u_{}",username)).get().ok_or(UserSystemError::UserDoesNotExist)?;
         let user = User::from_json(JsonDeserializer::deserialize(user_json)?)?;
         Ok(user)
     }
-    pub fn signup_using_type(&mut self, username:String, password:String, kv:&mut KeyValueStore, user_type: UserType) ->Result<(),UserSystemError>{
+    pub fn signup_using_type(&mut self, username:String, password:String, kv:&mut KeyValueStore, user_type: UserType) ->Result<u128,UserSystemError>{
         self.signup_with_no_type(username,password,user_type.get_permissions(),kv)
     }
-    pub fn signup_with_no_type(&mut self, username:String, password:String,user_permissions: UserPermissions, kv:&mut KeyValueStore) ->Result<(),UserSystemError>{
-        if self.logged_in_user.is_some() {
+    pub fn signup_with_no_type(&mut self, username:String, password:String,user_permissions: UserPermissions, kv:&mut KeyValueStore) ->Result<u128,UserSystemError>{
+        if self.is_user_logged_in(&username){
             return Err(UserSystemError::UserAlreadyLoggedIn);
         }
         if let Ok(e) = self.get_user_from_db(&username,kv){
@@ -402,41 +413,41 @@ impl UserSystem {
         if let None = res {
             return Err(UserSystemError::UserAlreadyExists);
         }
-        self.logged_in_user = Some(user);
-        Ok(())
+        Ok(self.add_user_to_logged_in_users(user))
+
     }
-    pub fn guest_login(&mut self,username:String,key_value_store: &KeyValueStore) ->Result<(),UserSystemError> {
-        if self.logged_in_user.is_some() {
+    pub fn guest_login(&mut self,username:String,key_value_store: &KeyValueStore) ->Result<u128,UserSystemError> {
+        if self.is_user_logged_in(&username) {
             return Err(UserSystemError::UserAlreadyLoggedIn);
         }
         if let Ok(_) = self.get_user_from_db(&username,key_value_store){
             return Err(UserSystemError::UserAlreadyExists);
         }
         let user = User::new_from_user_type(UserType::Guest, username, "very password yes yes".to_string());
-        self.logged_in_user = Some(user);
-        Ok(())
+        Ok(self.add_user_to_logged_in_users(user))
     }
-    pub fn login(&mut self,username:String,password:String,key_value_store: &KeyValueStore) ->Result<(),UserSystemError> {
-        if self.logged_in_user.is_some() {
+    pub fn login(&mut self,username:String,password:String,key_value_store: &KeyValueStore) ->Result<u128,UserSystemError> {
+        if self.is_user_logged_in(&username) {
             return Err(UserSystemError::UserAlreadyLoggedIn);
         }
         let user = self.get_user_from_db(&username,key_value_store)?;
         if user.password != User::generate_password_hash(password) {
             return Err(UserSystemError::IncorrectPassword);
         }
-        self.logged_in_user = Some(user);
-        Ok(())
+        Ok(self.add_user_to_logged_in_users(user))
     }
-    pub fn logout(&mut self) ->Result<(),UserSystemError> {
-        if self.logged_in_user.is_none() {
-            return Err(UserSystemError::UserNotLoggedIn);
+    pub fn logout(&mut self,user_id:u128) {
+        self.logged_in_users.remove(&user_id);
+
+    }
+    pub fn get_logged_in_user(&self,user_id:u128) ->Result<&User,UserSystemError>{
+        if let Some(user) = self.logged_in_users.get(&user_id) {
+            Ok(user)
+        }else {
+            Err(UserSystemError::UserDoesNotExist)
         }
-        self.logged_in_user = None;
-        Ok(())
     }
-    pub fn get_logged_in_user(&self) ->Option<User>{
-        self.logged_in_user.clone()
-    }
+
 
     pub fn modify_user_permissions(&mut self,username:String,user_permissions: UserPermissions,kv:&mut KeyValueStore) ->Result<(),UserSystemError> {
         let user = self.get_user_from_db(&username, kv)?;
@@ -497,6 +508,7 @@ impl User{
 
 #[cfg(test)]
 mod user_system_tests {
+    use crate::user_system::UserSystemError::{UserAlreadyExists, UserDoesNotExist, UserNotLoggedIn};
     use super::*;
     #[cfg(test)]
     fn create_kv_for_user_tests() -> KeyValueStore {
@@ -514,14 +526,38 @@ mod user_system_tests {
         let password = "XXXX".to_string();
 
         assert_eq!(user_system.login(username.clone(), password.clone(), &kv),Err(UserSystemError::UserDoesNotExist));
-        assert_eq!(user_system.signup_using_type(username.clone(), password.clone(), &mut kv, user_type),Ok(()));
-        assert_ne!(user_system.get_logged_in_user(),None);
-        assert_eq!(user_system.get_logged_in_user().unwrap().username,username);
-        user_system.logout().unwrap();
-        assert_eq!(user_system.get_logged_in_user(),None);
-        assert_eq!(user_system.login(username.clone(), password.clone(), &kv),Ok(()));
-        assert_eq!(user_system.get_logged_in_user().unwrap().username,username);
+        assert_eq!(user_system.signup_using_type(username.clone(), password.clone(), &mut kv, user_type),Ok((1)));
+        assert_ne!(user_system.get_logged_in_user(1),Err(UserNotLoggedIn));
+        assert_eq!(user_system.get_logged_in_user(1).unwrap().username,username);
+        user_system.logout(1);
+        assert_eq!(user_system.get_logged_in_user(1),Err(UserDoesNotExist));
+        assert_eq!(user_system.login(username.clone(), password.clone(), &kv),Ok(2));
+        assert_eq!(user_system.get_logged_in_user(2).unwrap().username,username);
+        user_system.logout(2);
+        assert_eq!(user_system.get_logged_in_user(2), Err(UserDoesNotExist));
+        assert_eq!(user_system.login(username.clone(), "XXXXX".to_string(), &kv), Err(UserSystemError::IncorrectPassword));
+        assert_eq!(user_system.login("XXXXX".to_string(), password.clone(), &kv), Err(UserSystemError::UserDoesNotExist));
+        assert_eq!(user_system.signup_using_type(username.clone(), password.clone(), &mut kv, user_type), Err(UserAlreadyExists));
         kv.erase()
+    }
+    #[test]
+    fn cleanup() {
+        create_kv_for_user_tests().erase()
+    }
+    #[test]
+    fn test_reload_user_system() {
+        let username="yosi";
+        let password="123456";
+        let user_type = UserType::Admin;
+        {
+            let mut kv = create_kv_for_user_tests();
+            let mut user_system = UserSystem::new();
+            user_system.signup_using_type(username.to_string(), password.to_string(), &mut kv, user_type).unwrap();
+        }
+        let mut kv = create_kv_for_user_tests();
+        let mut user_system = UserSystem::new();
+        assert_eq!(user_system.login(username.to_string(), password.to_string(), &kv), Ok(1));
+        kv.erase();
     }
 }
 

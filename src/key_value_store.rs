@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, Mutex, RwLock, RwLockReadGuard},
 };
 pub const BLOOM_FILTER_PATH: &str = "bloom_filter.dat";
-const MIN_INSERTS_TO_WRITE_BLOOM_FILTER_ON_DISK: usize = 50;
+const MIN_INSERTS_TO_WRITE_BLOOM_FILTER_ON_DISK: usize = 10;
 use crate::{
     bloom_filter::{self, BloomFilter, M},
     btree::{self, BPlusTree, DEFAULT_T, FILE_ENDING, NODES_FILE_ENDING, VALUES_FILE_ENDING},
@@ -564,7 +564,7 @@ impl KeyValueStore {
                         logger
                             .lock()
                             .unwrap()
-                            .log_info(format!("inserted {} into {}", name, key))
+                            .log_info(format!("inserted {} into {}", key, name))
                             .expect("cant log error in insert");
                         Some(ret)
                     }
@@ -658,7 +658,7 @@ impl KeyValueStore {
                         logger
                             .lock()
                             .unwrap()
-                            .log_info(format!("found {} in {}", key, name))
+                            .log_info(if ret.is_none(){format!("{} was not found in {}", key, name)}else { format!("found {} in {}", key, name) })
                             .expect("cant log error in insert");
                         ret
                     }

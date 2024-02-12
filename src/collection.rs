@@ -40,20 +40,11 @@ pub struct Collection {
     pub name: String,
     pub structure: Option<ValidationJson>,
 }
-/*
-todo:
-implement ranged search
-decide on a data structure for indexes
-implemnt index data structure
- */
+
 impl Display for Collection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut self_as_json = JsonObject::new();
-        self_as_json.insert("structure".to_string(), match &self.structure {
-            None => { JsonData::new_null() }
-            Some(structure) => { JsonData::infer_from_string(structure.to_string()).unwrap() }
-        });
-        write!(f, "{}", JsonSerializer::serialize(self_as_json))
+
+        write!(f, "{}", JsonSerializer::serialize(self.to_json()))
     }
 }
 impl Collection {
@@ -253,5 +244,13 @@ impl Collection {
         }
 
         Ok(())
+    }
+    pub fn to_json(&self) -> JsonObject {
+        let mut self_as_json = JsonObject::new();
+        self_as_json.insert("structure".to_string(), match &self.structure {
+            None => { JsonData::new_null() }
+            Some(structure) => { JsonData::infer_from_string(structure.to_string()).unwrap() }
+        });
+        self_as_json
     }
 }

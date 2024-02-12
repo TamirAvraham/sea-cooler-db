@@ -422,8 +422,11 @@ impl JsonDeserializer {
     ///
 
     pub fn deserialize_array(data: &String) -> Result<JsonArray, JsonError> {
+        if data == "[]" {
+            return Ok(JsonArray::new());
+        }
         let mut data = data.clone();
-        let mut ret = vec![];
+        let mut ret = JsonArray::new();
 
         while data != "]" {
             let (value_start, value_end) = Self::get_arr_member(&data)?;
@@ -435,6 +438,7 @@ impl JsonDeserializer {
         }
         Ok(ret)
     }
+
     /// # Description
     /// function deserializes a json string into a json object
     /// # Arguments
@@ -523,6 +527,9 @@ impl JsonSerializer {
         ret
     }
     pub fn serialize_array(json: JsonArray) -> String {
+        if json.is_empty() {
+            return "[]".to_string();
+        }
         let mut ret = "[".to_string();
         for element in json.into_iter() {
             ret.push_str(&format!("{},", element.to_json_string(0, false)));
@@ -588,7 +595,13 @@ impl TryFrom<String> for JsonObject {
         JsonDeserializer::deserialize(value)
     }
 }
-
+impl From<u128> for JsonData{
+    fn from(value: u128) -> Self {
+        JsonData{
+            data_type:JsonType::Integer,data:value.to_string()
+        }
+    }
+}
 impl JsonData {
     /// # Description
     /// function returns the json string version of the data
@@ -604,13 +617,7 @@ impl JsonData {
             JsonType::Boolean => self.data.clone(),
             JsonType::Float => self.data.clone(),
             JsonType::Array => {
-                let mut ret = "[".to_string();
-                for element in self.as_array().unwrap().into_iter() {
-                    ret.push_str(&format!("{},", element.to_json_string(spacer, false)));
-                }
-                ret.pop();
-                ret.push(']');
-                ret
+                JsonSerializer::serialize_array(self.as_array().unwrap())
             }
             JsonType::Object => JsonSerializer::serialize_with_spacer(
                 JsonObject::try_from(self.data.clone()).unwrap(),
@@ -1142,6 +1149,16 @@ mod tests {
         let mut json=JsonObject::new();
         json.insert("test".to_string(),JsonData::from_string("test".to_string()));
         println!("json is: \n{}", JsonSerializer::serialize(json.clone()));
+    }
+    #[test]
+    fn test_empty_array() {
+        let mut json=JsonObject::new();
+        let json_arr=JsonArray::new();
+        let json_arr_internal:JsonData=json_arr.into();
+        println!("json is: \n{}", json_arr_internal.data);
+        json.insert("test".to_string(), json_arr_internal);
+
+        println!("json is: \n{}", JsonSerializer::serialize(json));
     }
 }
 

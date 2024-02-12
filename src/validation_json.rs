@@ -1,7 +1,8 @@
 use std::fmt::Display;
 use std::{cmp::Ordering, collections::HashSet};
 
-use crate::json::{JsonData, JsonObject, JsonSerializer, JsonType};
+
+use crate::json::{JsonData, JsonError, JsonObject, JsonSerializer, JsonType};
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum JsonValidationError {
     IsNull,
@@ -177,17 +178,20 @@ impl ValidationJson {
 }
 
 
-impl From<JsonObject> for ValidationJson {
-    fn from(value: JsonObject) -> Self {
+
+
+impl TryFrom<JsonObject> for ValidationJson {
+    type Error = JsonError;
+    fn try_from(value: JsonObject) -> Result<Self,Self::Error> {
         let mut ret = Self::new();
-        value.into_iter().for_each(|(key, value)| {
-            let prop_as_json = value.as_object().unwrap();
+        for (key, value) in value.into_iter() {
+            let prop_as_json = value.as_object()?;
             let mut prop =
-                JsonValidationProperty::new(key, prop_as_json["type"].to_owned().try_into().unwrap());
-            let constraints = prop_as_json["constraints"].as_object().unwrap();
-            constraints
-                .into_iter()
-                .for_each(|(key, value)| match key.as_str() {
+                JsonValidationProperty::new(key, prop_as_json["type"].to_owned().try_into()?);
+            let constraints = prop_as_json["constraints"].as_object()?;
+            for (key, value) in constraints.into_iter()
+            {
+                match key.as_str() {
                     "nullable" => {
                         prop.constraint(JsonConstraint::Nullable);
                     }
@@ -198,26 +202,29 @@ impl From<JsonObject> for ValidationJson {
                         prop.constraint(JsonConstraint::Unique);
                     }
                     "value constraint" => {
-                        let value = value.as_object().unwrap();
-                        let data = value["value"].as_object().unwrap()["data"].to_owned();
+                        let value = value.as_object()?;
+                        let data = value["value"].as_object()?["data"].to_owned();
                         let order = value["order"].as_string();
+                        let order=match order.as_str() {
+                            "<" => Ordering::Less,
+                            ">" => Ordering::Greater,
+                            "=" => Ordering::Equal,
+                            _ => return Err(JsonError::ParseError)?,
+                        };
                         prop.constraint(JsonConstraint::ValueConstraint(
                             data,
-                            match order.as_str() {
-                                "<" => Ordering::Less,
-                                ">" => Ordering::Greater,
-                                "=" => Ordering::Equal,
-                                _ => panic!("not a real constraint"),
-                            },
+                            order,
                         ));
                     }
                     _ => {}
-                });
+                }
+            }
             ret.add(prop);
-        });
-        ret
+        }
+        Ok(ret)
     }
 }
+
 impl Display for ValidationJson {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut self_as_json = JsonObject::new();
@@ -252,8 +259,8 @@ impl Display for ValidationJson {
                             JsonData::from_string(
                                 match order {
                                     Ordering::Less => "<",
-                                    Ordering::Equal => ">",
-                                    Ordering::Greater => "=",
+                                    Ordering::Equal => "=",
+                                    Ordering::Greater => ">",
                                 }
                                 .to_string(),
                             ),
@@ -366,7 +373,7 @@ mod tests {
         }
         "#;
         let json = JsonDeserializer::deserialize(json.to_string()).unwrap();
-        let template = ValidationJson::from(json);
+        let template = ValidationJson::try_from(json).unwrap();
         assert_eq!(template.props.len(), 3);
 
         let prop=template.props.iter().find(|x|x.name=="name");
