@@ -422,6 +422,28 @@ fn delete_document_in_collection(http_request: HttpRequest) -> Option<HttpRespon
         Some(internal_error_response("Db was not created"))
     }
 }
+fn get_all_collection_documents(collection_name:&String,user_id:u128) -> HttpResponse{
+    if let Some(db) = get_data_base() {
+        match db
+            .read()
+            .unwrap()
+            .get_all_documents_from_collection(&collection_name, user_id)
+        {
+            Ok(value) => {
+                let mut json=JsonObject::new();
+                json.insert("documents".to_string(),value.into());
+                HttpResponse::new_from_json(
+                HttpStatusCode::OK,
+                JsonSerializer::serialize(json),
+                )
+            },
+
+            Err(err) => send_db_error_msg(err, "read"),
+        }
+    } else {
+        internal_error_response("Db was not created")
+    }
+}
 fn read_document_from_collection(http_request: HttpRequest) -> Option<HttpResponse> {
     let collection_name = match get_collection_name(&http_request) {
         Ok(collection_name) => collection_name,
@@ -432,7 +454,7 @@ fn read_document_from_collection(http_request: HttpRequest) -> Option<HttpRespon
         Err(ret) => return Some(ret),
     };
     let document_name = match http_request.get_param("document_name") {
-        None => return Some(invalid_request_response("document name param missing")),
+        None => return Some(get_all_collection_documents(&collection_name, user_id)),
         Some(value) => value.to_string(),
     };
     if let Some(db) = get_data_base() {

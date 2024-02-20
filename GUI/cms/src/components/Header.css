@@ -1,0 +1,18 @@
+.header{
+    background-color: var(--main-color);
+    display: flex;
+    align-content: center;
+    justify-content: center;
+    height: fit-content;
+}
+.header h1{
+    align-self: center;
+    justify-self: center;
+    font-family: Impact, system-ui ;
+    font-weight: bolder;
+    color: var(--third-color);
+    border-bottom: 4px;
+    border-color: var(--fourth-color);
+    font-size: xx-large;
+    height: fit-content;
+}

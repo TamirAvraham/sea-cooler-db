@@ -366,7 +366,7 @@ impl BPlusTree {
     ) -> InternalResult<Option<usize>> {
         let node = pager.read_node(node_page_id)?;
         match node.is_leaf {
-            true => Ok(if let Some(ret) = node.get(key) {
+            true => Ok(if let Some(_) = node.get(key) {
                 Some(if root_is_a_leaf { node_page_id } else { 0 })
             } else {
                 None

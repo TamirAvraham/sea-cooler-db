@@ -127,7 +127,7 @@ impl DataBase {
     }
     pub fn create_collection(&mut self, name: String, structure: Option<ValidationJson>,user_id:u128)->Result<(),DataBaseError>{
         self.check_permission(|user| user.can_create(),user_id)?;
-        let collection = Collection::new(structure, name);
+        let collection = Collection::new(structure, name, &mut self.key_value_store)?;
         self.collections.push(collection);
         self.save()?;
         Ok(())
@@ -187,6 +187,11 @@ impl DataBase {
     pub fn get_collection<'a>(&'a self, name: &'a String)->Option<&Collection>{
         Self::get_collection_internal(&self.collections, name)
     }
+    pub fn get_all_documents_from_collection(&self, collection_name: &String, user_id:u128) ->Result<Vec<JsonObject>,DataBaseError>{
+        self.check_permission(|user| user.can_read(collection_name), user_id)?;
+        let collection = Self::get_collection_internal(&self.collections, collection_name).unwrap();
+        Ok(collection.get_all_documents(&self.key_value_store)?)
+    }
 }
 
 impl TryFrom<JsonObject> for DataBase {
@@ -195,7 +200,7 @@ impl TryFrom<JsonObject> for DataBase {
     fn try_from(value: JsonObject) -> Result<Self, Self::Error> {
         let name = value["name"].as_string();
         let index = SkipList::new(&format!("{} index", name))?;
-        let kv = KeyValueStore::new(format!("{} storage engine", name));
+        let mut kv = KeyValueStore::new(format!("{} storage engine", name));
         let mut collections = vec![];
         let collections_json = value["collections"].as_object()?;
         for (name, value) in collections_json.into_iter() {
@@ -207,7 +212,8 @@ impl TryFrom<JsonObject> for DataBase {
                     Some(ValidationJson::try_from(value["structure"].as_object()?)?)
                 },
                 name,
-            ))
+                &mut kv,
+            )?)
         }
         Ok(Self {
             collections,
@@ -222,7 +228,7 @@ impl TryFrom<JsonObject> for DataBase {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::json::JsonType;
+    use crate::json::{JsonArray, JsonType};
     use crate::validation_json::{JsonConstraint, JsonValidationProperty};
     use std::cmp::Ordering;
     use crate::user_system::UserType;
@@ -408,6 +414,35 @@ mod tests {
             json.insert("age".to_string(), (i+100).into());
             json.insert("name".to_string(), "beni".to_string().into());
             assert!(db.insert_into_collection(&second_collection_name,i.to_string(), json,id).is_err());
+        }
+        db.erase(id).unwrap();
+    }
+    #[test]
+    fn test_get_all_from_collection() {
+        let collection_name="tgafc".to_string();
+        let mut db = DataBase::new("test get all collections db".to_string()).unwrap();
+        let id=set_up_users(&mut db);
+        let range: i32= 200;
+        db.create_collection(collection_name.clone(), None, id).expect("cant create collection");
+        for i in 0..range {
+            let mut json=JsonObject::new();
+            json.insert(format!("val_num_{}", i),i.into());
+            db.insert_into_collection(&collection_name, i.to_string(), json, id).expect("cant insert");
+        }
+        let result=db.get_all_documents_from_collection(&collection_name, id).expect("cant get all");
+        let result_as_json_array=result.clone().into_iter().map(|jo| JsonData::from(jo)).collect::<Vec<JsonData>>();
+        println!("result is {}",JsonSerializer::serialize_array(result_as_json_array));
+        assert_eq!(result.len(), range as usize);
+        for number in 0..range {
+            assert!(result.iter().any(|json| {
+                if let Some(data) = json.get(&format!("val_num_{}",number)) {
+                    if let Ok(value) = data.as_int() {
+                        return value==number;
+                    }
+                }
+                false
+
+            }))
         }
         db.erase(id).unwrap();
     }

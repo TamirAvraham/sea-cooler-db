@@ -7,13 +7,16 @@ use crate::{
 };
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
+const COLLECTION_START_CHAR:char='!';
+const COLLECTION_END_CHAR:char='~';
+const COLLECTION_PLACEMENTS_CONTENT:&str="hahaha empty like me";
 #[derive(Debug)]
 pub enum CollectionError {
     InvalidData(JsonValidationError),
     KeyValueError(KeyValueError),
     IndexError(SkipListError),
     InvalidJson(JsonError),
-    InternalError
+    InternalError,
 }
 impl From<JsonValidationError> for CollectionError {
     fn from(item: JsonValidationError) -> Self {
@@ -43,25 +46,20 @@ pub struct Collection {
 
 impl Display for Collection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-
         write!(f, "{}", JsonSerializer::serialize(self.to_json()))
     }
 }
 impl Collection {
-    pub fn new(structure: Option<ValidationJson>, name: String) -> Self {
-        Self { name, structure }
+    pub fn new(structure: Option<ValidationJson>, name: String, kv: &mut KeyValueStore) -> Result<Self,CollectionError> {
+        kv.insert(format!("{}{}",name,COLLECTION_START_CHAR),COLLECTION_PLACEMENTS_CONTENT.to_string()).get();
+        kv.insert(format!("{}{}",name,COLLECTION_END_CHAR),COLLECTION_PLACEMENTS_CONTENT.to_string()).get();
+        Ok(Self { name, structure })
     }
-    pub fn new_structured(structure: ValidationJson, name: String) -> Self {
-        Self {
-            name,
-            structure: Some(structure),
-        }
+    pub fn new_structured(structure: ValidationJson, name: String, kv: &mut KeyValueStore) -> Result<Collection, CollectionError> {
+        Self::new(Some(structure), name, kv)
     }
-    pub fn new_unstructured(name: String) -> Self {
-        Self {
-            name,
-            structure: None,
-        }
+    pub fn new_unstructured(name: String, key_value_store:&mut KeyValueStore) -> Result<Collection, CollectionError> {
+        Self::new(None, name, key_value_store)
     }
     fn search_index(
         &self,
@@ -118,6 +116,7 @@ impl Collection {
         }
         Ok(())
     }
+
     pub fn insert(
         &mut self,
         record_name: String,
@@ -141,27 +140,25 @@ impl Collection {
             record_value_clone = Some(record_value.clone());
         }
 
-        let value_location = kv.insert(
-            format!("{}_{}", self.name, record_name),
-            JsonSerializer::serialize(record_value),
-        );
+        let value_location = kv
+            .insert(
+                format!("{}_{}", self.name, record_name),
+                JsonSerializer::serialize(record_value),
+            )
+            .get()
+            .ok_or(CollectionError::InternalError)?;
 
         if let Some(structure) = &self.structure {
             // update index
-
-            if let Some(value_location) = value_location.get() {
-                let record_value = record_value_clone.unwrap();
-                for validation_property in structure.get_all_props() {
-                    self.update_index(
-                        &validation_property.name,
-                        &record_value[&validation_property.name].as_string(),
-                        index,
-                        vec![value_location],
-                    )?;
-                }
+            let record_value = record_value_clone.unwrap();
+            for validation_property in structure.get_all_props() {
+                self.update_index(
+                    &validation_property.name,
+                    &record_value[&validation_property.name].as_string(),
+                    index,
+                    vec![value_location],
+                )?;
             }
-        }else {
-            value_location.get().ok_or(CollectionError::InternalError)?;
         }
 
         Ok(())
@@ -247,10 +244,26 @@ impl Collection {
     }
     pub fn to_json(&self) -> JsonObject {
         let mut self_as_json = JsonObject::new();
-        self_as_json.insert("structure".to_string(), match &self.structure {
-            None => { JsonData::new_null() }
-            Some(structure) => { JsonData::infer_from_string(structure.to_string()).unwrap() }
-        });
+        self_as_json.insert(
+            "structure".to_string(),
+            match &self.structure {
+                None => JsonData::new_null(),
+                Some(structure) => JsonData::infer_from_string(structure.to_string()).unwrap(),
+            },
+        );
         self_as_json
+    }
+    pub fn get_all_documents(
+        &self,
+        kv: &KeyValueStore,
+    ) -> Result<Vec<JsonObject>, CollectionError> {
+        let mut ret=vec![];
+        let search_result=kv.range_scan(format!("{}{}", self.name, COLLECTION_START_CHAR), format!("{}{}", self.name, COLLECTION_END_CHAR)).get();
+        for doc_as_string in search_result.into_iter() {
+            if &doc_as_string !=COLLECTION_PLACEMENTS_CONTENT && !doc_as_string.is_empty() {
+                ret.push(JsonDeserializer::deserialize(doc_as_string)?);
+            }
+        }
+        Ok(ret)
     }
 }

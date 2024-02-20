@@ -186,11 +186,13 @@ impl HttpServer {
 impl HttpResponse{
 
     pub fn new(status_code:HttpStatusCode, body:Option<String>)->HttpResponse{
-        HttpResponse{
+        let mut ret=HttpResponse{
             status_code,
             headers:HashMap::new(),
             body:None,
-        }
+        };
+        ret.headers.insert("Access-Control-Allow-Origin".to_string(), "*".to_string());
+        ret
     }
     pub fn new_from_html_file(status_code:HttpStatusCode, file_path:String)->Result<HttpResponse,std::io::Error> {
         let file_content=std::fs::read_to_string(file_path)?;
@@ -202,6 +204,7 @@ impl HttpResponse{
         };
         ret.headers.insert("Content-Type".to_string(), "text/html".to_string());
         ret.headers.insert("Content-Length".to_string(),body_length.to_string());
+        ret.headers.insert("Access-Control-Allow-Origin".to_string(), "*".to_string());
         Ok(ret)
     }
     pub fn new_from_json(status_code:HttpStatusCode, json:String)->HttpResponse {
@@ -214,7 +217,7 @@ impl HttpResponse{
         };
         ret.headers.insert("Content-Type".to_string(), "application/json".to_string());
         ret.headers.insert("Content-Length".to_string(),body_length.to_string());
-
+        ret.headers.insert("Access-Control-Allow-Origin".to_string(), "*".to_string());
         ret
     }
     pub fn new_internal_error()->HttpResponse {

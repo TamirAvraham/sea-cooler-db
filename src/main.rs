@@ -129,10 +129,3 @@ fn insert(kv:&mut KeyValueStore){
 
     kv.insert(key,value).get();
 }
-fn login(db:&mut DataBase){
-    print!("enter username:");
-    let username=get_user_input();
-    print!("enter password:");
-    let password=get_user_input();
-    db.login(username, password);
-}

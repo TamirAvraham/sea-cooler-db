@@ -342,28 +342,28 @@ impl KeyValueStore {
                 let tree = tree.read().unwrap();
                 tree.range_search(start.clone(), end.clone())?
             };
-            let ret = {
-                let mut ret = vec![String::default(); search.len()];
-                for (key, value_location) in search {
-                    let pager = {
-                        let tree = tree.read().unwrap();
-                        tree.pager.read_value(value_location)
-                    };
-                    if let Ok(value) = pager {
-                        ret.push(
-                            EncryptionService::get_instance()
-                                .read()
-                                .unwrap()
-                                .decrypt(value, &key),
-                        );
-                    }
-                }
-                ret
-            };
-
-            ret
+            Self::decrypt_and_get_values_internal(&search, tree)
         })
     }
+    fn decrypt_and_get_values_internal(locations:&Vec<(String,usize)>, tree: &ThreadProtector<BPlusTree>)->Vec<String>{
+        let mut ret = vec![String::default(); locations.len()];
+        for (key, value_location) in locations {
+            let pager = {
+                let tree = tree.read().unwrap();
+                tree.pager.read_value(*value_location)
+            };
+            if let Ok(value) = pager {
+                ret.push(
+                    EncryptionService::get_instance()
+                        .read()
+                        .unwrap()
+                        .decrypt(value, key),
+                );
+            }
+        }
+        ret
+    }
+
     /// #  Description
     ///  function tries to update a key from the store and calls the associated overwatch function if it has any
     /// # Arguments
