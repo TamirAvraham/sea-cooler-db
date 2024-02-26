@@ -1,10 +1,10 @@
+use std::collections::{HashMap, HashSet};
+use std::panic::set_hook;
 use std::{
     fs::{self, OpenOptions},
     io::{Read, Seek, Write},
     path::Path,
 };
-use std::collections::{HashMap, HashSet};
-use std::panic::set_hook;
 
 use crate::{
     error::{map_err, Error, InternalResult},
@@ -75,26 +75,21 @@ impl BTreeBuilder {
                 println!("in nodes file{:?}", e);
                 Error::FileError
             })?;
-        let values_path =self.path.clone() + VALUES_FILE_ENDING + FILE_ENDING;
-        let values_file = if Path::new(&values_path).exists(){
-
+        let values_path = self.path.clone() + VALUES_FILE_ENDING + FILE_ENDING;
+        let values_file = if Path::new(&values_path).exists() {
             let mut file_options = OpenOptions::new();
             file_options.read(true).write(true);
-            file_options
-                .open(values_path)
-                .map_err(|e| {
-                    println!("in values file{:?}", e);
-                    Error::FileError
-                })?
+            file_options.open(values_path).map_err(|e| {
+                println!("in values file{:?}", e);
+                Error::FileError
+            })?
         } else {
             let mut file_options = OpenOptions::new();
             file_options.write(true).create(true).read(true);
-            file_options
-                .open(values_path)
-                .map_err(|e| {
-                    println!("in values file{:?}", e);
-                    Error::FileError
-                })?
+            file_options.open(values_path).map_err(|e| {
+                println!("in values file{:?}", e);
+                Error::FileError
+            })?
         };
 
         let mut pager = Pager::new(nodes_file, values_file, DEFAULT_CACHE_SIZE);
@@ -181,7 +176,7 @@ impl BPlusTree {
         pager: &mut Pager,
         node_page_id: usize,
         value: &[u8],
-    ) -> InternalResult<Option<(Vec<u8>,usize)>> {
+    ) -> InternalResult<Option<(Vec<u8>, usize)>> {
         let mut node = pager.read_node(node_page_id)?;
         return match node.is_leaf {
             true => {
@@ -193,7 +188,7 @@ impl BPlusTree {
                     node.update(key, new_value_location);
                     pager.write_node(&node)?;
 
-                    Ok(Some((old_value,new_value_location)))
+                    Ok(Some((old_value, new_value_location)))
                 } else {
                     Ok(None)
                 }
@@ -204,7 +199,7 @@ impl BPlusTree {
                 }
                 Ok(None)
             }
-        }
+        };
     }
     /// #  Description
     ///  function is a wrapper for update internal
@@ -214,7 +209,11 @@ impl BPlusTree {
     /// * `value`: new value
     ///
     /// returns: Result<Option<Vec<u8, Global>>, Error> (old value)
-    pub fn update(&mut self, key: String, value: &[u8]) -> InternalResult<Option<(Vec<u8>,usize)>> {
+    pub fn update(
+        &mut self,
+        key: String,
+        value: &[u8],
+    ) -> InternalResult<Option<(Vec<u8>, usize)>> {
         Self::update_internal(key, &mut self.pager, self.root_page_id, value)
     }
 
@@ -299,7 +298,7 @@ impl BPlusTree {
         key: String,
         pager: &Pager,
         node_page_id: usize,
-    ) -> InternalResult<Option<(String,usize)>> {
+    ) -> InternalResult<Option<(String, usize)>> {
         let node = pager.read_node(node_page_id)?;
         return match node.is_leaf {
             true => {
@@ -315,7 +314,7 @@ impl BPlusTree {
                 }
                 Ok(None)
             }
-        }
+        };
     }
     /// #  Description
     /// function looks for the value of a key
@@ -347,7 +346,7 @@ impl BPlusTree {
                 }
                 Ok(None)
             }
-        }
+        };
     }
     /// #  Description
     /// function looks for a node that contains key
@@ -362,7 +361,7 @@ impl BPlusTree {
         key: String,
         pager: &Pager,
         node_page_id: usize,
-        root_is_a_leaf:bool
+        root_is_a_leaf: bool,
     ) -> InternalResult<Option<usize>> {
         let node = pager.read_node(node_page_id)?;
         match node.is_leaf {
@@ -373,11 +372,22 @@ impl BPlusTree {
             }),
             false => {
                 if let Some(found_node_page_id) = node.get(key.clone()) {
-                    return Ok(if let Some(result) = Self::search_node_by_key(key, pager, *found_node_page_id,root_is_a_leaf)? {
-                        Some(if result==0 { *found_node_page_id } else { result })
-                    }else {
-                        None
-                    });
+                    return Ok(
+                        if let Some(result) = Self::search_node_by_key(
+                            key,
+                            pager,
+                            *found_node_page_id,
+                            root_is_a_leaf,
+                        )? {
+                            Some(if result == 0 {
+                                *found_node_page_id
+                            } else {
+                                result
+                            })
+                        } else {
+                            None
+                        },
+                    );
                 }
                 return Ok(None);
             }
@@ -412,9 +422,7 @@ impl BPlusTree {
 
                 if let Some(last_key) = node.keys.last() {
                     if last_key <= end {
-                        if let Some(&node_page_id) =
-                            node.values.last()
-                        {
+                        if let Some(&node_page_id) = node.values.last() {
                             ret.extend(Self::get_values(start, end, pager, node_page_id)?);
                         }
                     }
@@ -448,17 +456,17 @@ impl BPlusTree {
         start: String,
         end: String,
         root_page_id: usize,
-        root_is_a_leaf:bool,
+        root_is_a_leaf: bool,
         pager: &Pager,
     ) -> InternalResult<usize> {
-        let start_node_id =
-            Self::search_node_by_key(start, pager, root_page_id,root_is_a_leaf)?.ok_or(Error::CantGetValue)?;
+        let start_node_id = Self::search_node_by_key(start, pager, root_page_id, root_is_a_leaf)?
+            .ok_or(Error::CantGetValue)?;
         let mut start_node = pager.read_node(start_node_id)?;
 
-        let end_node_id =
-            Self::search_node_by_key(end, pager, root_page_id,root_is_a_leaf)?.ok_or(Error::CantGetValue)?;
+        let end_node_id = Self::search_node_by_key(end, pager, root_page_id, root_is_a_leaf)?
+            .ok_or(Error::CantGetValue)?;
         let mut end_node = pager.read_node(end_node_id)?;
-        if start_node_id==end_node_id {
+        if start_node_id == end_node_id {
             return Ok(start_node_id);
         }
         while start_node.parent_page_id != end_node.parent_page_id {
@@ -484,20 +492,28 @@ impl BPlusTree {
         start: String,
         end: String,
         root_page_id: usize,
-        root_is_a_leaf:bool,
+        root_is_a_leaf: bool,
         pager: &Pager,
     ) -> InternalResult<HashSet<(String, usize)>> {
-        let intersection =
-            match Self::find_nodes_intersection(start.clone(), end.clone(), root_page_id,root_is_a_leaf,pager) {
-                Ok(ret) => Ok(ret),
-                Err(err) => if err==Error::CantGetValue {
-                    return Ok(HashSet::new())
-                }else {
+        let intersection = match Self::find_nodes_intersection(
+            start.clone(),
+            end.clone(),
+            root_page_id,
+            root_is_a_leaf,
+            pager,
+        ) {
+            Ok(ret) => Ok(ret),
+            Err(err) => {
+                if err == Error::CantGetValue {
+                    return Ok(HashSet::new());
+                } else {
                     Err(err)
                 }
-            }?;
-        Ok(Self::get_values(&start, &end, pager, intersection)?.into_iter()
-            .collect::<HashSet<(String,usize)>>())
+            }
+        }?;
+        Ok(Self::get_values(&start, &end, pager, intersection)?
+            .into_iter()
+            .collect::<HashSet<(String, usize)>>())
     }
     /// #   Description
     /// function is a wrapper for range_search_internal.
@@ -509,17 +525,33 @@ impl BPlusTree {
     ///
     /// returns: Result<Vec<(String, usize), Global>, Error>
     pub fn range_search(&self, start: String, end: String) -> Result<Vec<(String, usize)>, Error> {
-        if start==end {
-            return Ok(match Self::search_for_value_pointer(start, &self.pager,self.root_page_id)? {
-                None => {vec![]}
-                Some(ret) => {vec![ret]}
-            });
+        if start == end {
+            return Ok(
+                match Self::search_for_value_pointer(start, &self.pager, self.root_page_id)? {
+                    None => {
+                        vec![]
+                    }
+                    Some(ret) => {
+                        vec![ret]
+                    }
+                },
+            );
         }
-        let is_root_a_leaf={
-            let root=self.pager.read_node(self.root_page_id)?;
+        let is_root_a_leaf = {
+            let root = self.pager.read_node(self.root_page_id)?;
             root.is_leaf
         };
-        Ok(Self::range_search_internal(start, end, self.root_page_id,is_root_a_leaf, &self.pager)?.into_iter().collect::<Vec<(String, usize)>>())
+        Ok(
+            Self::range_search_internal(
+                start,
+                end,
+                self.root_page_id,
+                is_root_a_leaf,
+                &self.pager,
+            )?
+            .into_iter()
+            .collect::<Vec<(String, usize)>>(),
+        )
     }
     /// # Description
     /// function is a wrapper for search_internal.
@@ -544,17 +576,17 @@ impl BPlusTree {
     ///
     /// returns: Result<(), Error>
     ///
-    fn delete_node(
-        key: String,
-        pager: &mut Pager,
-        node_page_id:usize,
-    ) -> Result<(), Error> {
-        let mut node=pager.read_node(node_page_id)?;
+    fn delete_node(key: String, pager: &mut Pager, node_page_id: usize) -> Result<(), Error> {
+        let mut node = pager.read_node(node_page_id)?;
 
         match node.is_leaf {
             true => {
                 if let Some(value_location) = node.get(key.clone()) {
-                    let i = node.keys.iter().position(|r| r.clone() == key.clone()).unwrap();
+                    let i = node
+                        .keys
+                        .iter()
+                        .position(|r| r.clone() == key.clone())
+                        .unwrap();
 
                     pager.delete_value(node.values[i])?;
 
@@ -658,26 +690,24 @@ mod tests {
             assert_eq!(res, Some(value.as_bytes().to_vec()), "{}", err_msg);
         });
         println!("completed search");
-        (1..=range).rev().for_each(|i|{
-            let key=format!("key_{}",i);
-            let err_msg=format!("error when serching for i:{}",i);
-            println!("deleting {}",key.clone());
+        (1..=range).rev().for_each(|i| {
+            let key = format!("key_{}", i);
+            let err_msg = format!("error when serching for i:{}", i);
+            println!("deleting {}", key.clone());
             tree.delete(key.clone()).expect(&err_msg);
             (1..i).for_each(|i| {
-                let key=format!("key_{}",i);
-                let value=format!("value_{}",i);
-                let err_msg=format!("error when serching for i:{}",i);
-                println!("searching {}",key.clone());
-                let res=tree.search(key).expect(&err_msg);
+                let key = format!("key_{}", i);
+                let value = format!("value_{}", i);
+                let err_msg = format!("error when serching for i:{}", i);
+                println!("searching {}", key.clone());
+                let res = tree.search(key).expect(&err_msg);
 
-                assert_eq!(res,Some(value.as_bytes().to_vec()),"{}", err_msg);
+                assert_eq!(res, Some(value.as_bytes().to_vec()), "{}", err_msg);
             });
-            let res=tree.search(key).expect(&err_msg);
-            assert_eq!(res,None,"{}",err_msg);
+            let res = tree.search(key).expect(&err_msg);
+            assert_eq!(res, None, "{}", err_msg);
         });
         println!("delete complete");
-
-
 
         cleanup_temp_files();
         println!("completed tree tests with t=2");
@@ -768,12 +798,16 @@ mod tests {
         });
     }
 
-    
     #[test]
     fn test_default_t_tree_just_insert_and_search() {
-        let path="temp".to_string();
-        let mut tree=BTreeBuilder::new().name(&path.clone()).path(path).t(DEFAULT_T).build().unwrap();
-        let range=DEFAULT_T*100;
+        let path = "temp".to_string();
+        let mut tree = BTreeBuilder::new()
+            .name(&path.clone())
+            .path(path)
+            .t(DEFAULT_T)
+            .build()
+            .unwrap();
+        let range = DEFAULT_T * 100;
         (1..=range).for_each(|i| {
             println!("inserting i:{}",i);
             let key=format!("key_{}",i);
@@ -793,21 +827,21 @@ mod tests {
             assert_eq!(res, Some(value.as_bytes().to_vec()), "{}", err_msg);
         });
         println!("completed search");
-        (1..=range).rev().for_each(|i|{
-            let key=format!("key_{}",i);
-            let err_msg=format!("error when serching for i:{}",i);
-            println!("deleting {}",key.clone());
+        (1..=range).rev().for_each(|i| {
+            let key = format!("key_{}", i);
+            let err_msg = format!("error when serching for i:{}", i);
+            println!("deleting {}", key.clone());
             tree.delete(key.clone()).expect(&err_msg);
             (1..i).for_each(|i| {
-                let key=format!("key_{}",i);
-                let value=format!("value_{}",i);
-                let err_msg=format!("error when serching for i:{}",i);
-                println!("searching {}",key.clone());
-                let res=tree.search(key).expect(&err_msg);
-                assert_eq!(res,Some(value.as_bytes().to_vec()),"{}", err_msg);
+                let key = format!("key_{}", i);
+                let value = format!("value_{}", i);
+                let err_msg = format!("error when serching for i:{}", i);
+                println!("searching {}", key.clone());
+                let res = tree.search(key).expect(&err_msg);
+                assert_eq!(res, Some(value.as_bytes().to_vec()), "{}", err_msg);
             });
-            let res=tree.search(key).expect(&err_msg);
-            assert_eq!(res,None,"{}",err_msg);
+            let res = tree.search(key).expect(&err_msg);
+            assert_eq!(res, None, "{}", err_msg);
         });
         println!("delete complete");
 
@@ -839,8 +873,14 @@ mod tests {
         // Check results
         let expected_keys: Vec<String> = (3..=7).map(|i| format!("key_{}", i)).collect();
         let expected_values: Vec<usize> = (3..=7).map(|i| i).collect();
-        assert_eq!(results.len(), expected_values.len(),"results {:?}, expected {:?}",results,expected_keys);
-        assert!(results.iter().all(|(x,_)| expected_keys.contains(x)))
+        assert_eq!(
+            results.len(),
+            expected_values.len(),
+            "results {:?}, expected {:?}",
+            results,
+            expected_keys
+        );
+        assert!(results.iter().all(|(x, _)| expected_keys.contains(x)))
     }
 
     #[test]

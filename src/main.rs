@@ -25,6 +25,7 @@ mod database_api;
 use std::io;
 use std::io::Write;
 use crate::database::DataBase;
+use crate::database_api::start_db_api;
 use crate::key_value_store::KeyValueStore;
 
 fn get_user_input()->String{
@@ -71,6 +72,9 @@ fn main() {
                 kv.erase();
                 break;
             },
+            "start"=>{
+                start_db_api("seacoller".to_string())
+            }
             _=> println!("invalid command"),
         }
     }

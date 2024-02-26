@@ -1,17 +1,17 @@
 use std::collections::HashMap;
-#[derive(Debug,PartialEq,Hash,Eq,Clone,Copy)]
+#[derive(Debug, PartialEq, Hash, Eq, Clone, Copy)]
 pub enum HttpParseError {
     InvalidMethod,
 }
-#[derive(PartialEq,Debug,Hash,Eq,Clone,Copy)]
-pub enum HttpMethod{
+#[derive(PartialEq, Debug, Hash, Eq, Clone, Copy)]
+pub enum HttpMethod {
     GET,
     POST,
     PUT,
     DELETE,
 }
 
-pub struct HttpRequest{
+pub struct HttpRequest {
     pub method: HttpMethod,
     pub path: String,
     pub version: String,
@@ -30,7 +30,7 @@ fn parse_cookie(cookie: &str) -> HashMap<String, String> {
     }
     cookies
 }
-fn parse_params(path: &str) -> (&str,HashMap<String, String>) {
+fn parse_params(path: &str) -> (&str, HashMap<String, String>) {
     let mut params = HashMap::new();
     let mut path_parts = path.split("?");
     let path = path_parts.next().unwrap_or(path);
@@ -42,35 +42,48 @@ fn parse_params(path: &str) -> (&str,HashMap<String, String>) {
             params.insert(key.to_string(), value.to_string());
         }
     }
-    (path,params)
+    (path, params)
 }
-pub fn parse(request_buffer:&[u8])->Result<HttpRequest,HttpParseError>{
+pub fn parse(request_buffer: &[u8]) -> Result<HttpRequest, HttpParseError> {
     let mut headers = HashMap::new();
     let mut request = String::from_utf8_lossy(request_buffer);
     let mut request_lines = request.lines();
 
-    let mut request_line = request_lines.next().ok_or(HttpParseError::InvalidMethod)?.split_whitespace();
+    let mut request_line = request_lines
+        .next()
+        .ok_or(HttpParseError::InvalidMethod)?
+        .split_whitespace();
 
     let method = request_line.next().ok_or(HttpParseError::InvalidMethod)?;
 
-    let (path,params) = parse_params(request_line.next().ok_or(HttpParseError::InvalidMethod)?);
+    let (path, params) = parse_params(request_line.next().ok_or(HttpParseError::InvalidMethod)?);
     let version = request_line.next().ok_or(HttpParseError::InvalidMethod)?;
-    for line in request_lines.clone(){
-        if line.is_empty(){
+    for line in request_lines.clone() {
+        if line.is_empty() {
             break;
         }
         let mut header_line = line.split_once(":");
-        if let Some((header_name,header_value)) = header_line {
-
-            headers.insert(header_name.trim().to_string(), header_value.trim().to_string());
+        if let Some((header_name, header_value)) = header_line {
+            headers.insert(
+                header_name.trim().to_string(),
+                header_value.trim().to_string(),
+            );
         }
     }
     let cookie = headers.get("Cookie").map(|cookie| parse_cookie(cookie));
-    let body= if let Some(body_start) = request.find("\r\n\r\n") {
-        Some(request[body_start+4..].to_string())
-    }else {
+    let body = if let Some(body_start) = request.find("\r\n\r\n") {
+        Some(request[body_start + 4..].to_string())
+    } else {
         None
-    }.map(|body| if body.is_empty() { None }else { Some(body.trim_matches(char::from(0)).to_string()) } ).unwrap_or(None);
+    }
+    .map(|body| {
+        if body.is_empty() {
+            None
+        } else {
+            Some(body.trim_matches(char::from(0)).to_string())
+        }
+    })
+    .unwrap_or(None);
     let method = match method {
         "GET" => HttpMethod::GET,
         "POST" => HttpMethod::POST,
@@ -102,9 +115,10 @@ impl HttpRequest {
         self.body.as_ref()
     }
     pub fn body_is_json(&self) -> bool {
-        self.get_header("Content-Type").map(|content_type| content_type.contains("application/json")).unwrap_or(false)
+        self.get_header("Content-Type")
+            .map(|content_type| content_type.contains("application/json"))
+            .unwrap_or(false)
     }
-
 }
 #[cfg(test)]
 mod tests {
@@ -171,5 +185,3 @@ mod tests {
         assert_eq!(request.body, None);
     }
 }
-
-

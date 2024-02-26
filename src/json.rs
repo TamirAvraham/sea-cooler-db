@@ -1,9 +1,9 @@
+use crate::json::JsonError::ParseError;
+use std::fmt::Display;
 use std::{
     collections::HashMap,
     ops::{Index, IndexMut},
 };
-use std::fmt::Display;
-use crate::json::JsonError::ParseError;
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy)]
 pub enum JsonType {
@@ -22,16 +22,16 @@ impl TryFrom<JsonData> for JsonType {
     fn try_from(value: JsonData) -> Result<Self, Self::Error> {
         if let Self::String = value.data_type {
             match value.as_string().as_str() {
-                "array"=> Ok(Self::Array),
-                "object"=> Ok(Self::Object),
-                "null"=> Ok(Self::Null),
-                "float"=> Ok(Self::Float),
-                "bool"=> Ok(Self::Boolean),
-                "string"=> Ok(Self::String),
-                "int"=> Ok(Self::Integer),
-                _=> return Err(JsonError::ParseError),
+                "array" => Ok(Self::Array),
+                "object" => Ok(Self::Object),
+                "null" => Ok(Self::Null),
+                "float" => Ok(Self::Float),
+                "bool" => Ok(Self::Boolean),
+                "string" => Ok(Self::String),
+                "int" => Ok(Self::Integer),
+                _ => return Err(JsonError::ParseError),
             }
-        }else {
+        } else {
             return Err(JsonError::ParseError);
         }
     }
@@ -47,7 +47,8 @@ impl Display for JsonType {
             JsonType::Array => "array",
             JsonType::Object => "object",
             JsonType::Null => "null",
-        }.to_string();
+        }
+        .to_string();
         write!(f, "{}", str)
     }
 }
@@ -64,8 +65,14 @@ pub struct JsonData {
 impl Display for JsonData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut json = JsonObject::new();
-        json.insert("data".to_string(), JsonData::new(self.data.clone(), self.data_type));
-        json.insert("type".to_string(), JsonData::from_string(self.data_type.to_string()));
+        json.insert(
+            "data".to_string(),
+            JsonData::new(self.data.clone(), self.data_type),
+        );
+        json.insert(
+            "type".to_string(),
+            JsonData::from_string(self.data_type.to_string()),
+        );
         write!(f, "{}", JsonSerializer::serialize(json))
     }
 }
@@ -77,7 +84,6 @@ pub type JsonArray = Vec<JsonData>;
 pub struct JsonObject {
     map: HashMap<String, JsonData>,
 }
-
 
 impl JsonObject {
     pub fn new() -> Self {
@@ -106,7 +112,7 @@ impl JsonObject {
     /// returns: Option<&JsonData>
     ///
 
-    pub fn get(&self,key:&String)->Option<&JsonData>{
+    pub fn get(&self, key: &String) -> Option<&JsonData> {
         self.map.get(key)
     }
 }
@@ -224,7 +230,7 @@ impl JsonData {
         }
     }
 
-    pub fn get_type(&self)->JsonType{
+    pub fn get_type(&self) -> JsonType {
         self.data_type
     }
 }
@@ -296,7 +302,8 @@ impl JsonDeserializer {
     ///
 
     fn get_last_value(data: &str, arr: bool) -> Result<usize, JsonError> {
-        if data.find(if arr { '[' } else { '{' }).is_none() { // look if there are different nested objects in the value
+        if data.find(if arr { '[' } else { '{' }).is_none() {
+            // look if there are different nested objects in the value
             if let Some(end) = data.find(if arr { ']' } else { '}' }) {
                 return Ok(end);
             }
@@ -342,9 +349,7 @@ impl JsonDeserializer {
             if let Some(first_char) = data[start + 1..].chars().next() {
                 let end = if first_char == '[' || first_char == '{' {
                     Self::find_matching_closing_bracket(&data[start + 1..], 0)? + 1
-                }
-
-                else {
+                } else {
                     if let Some(end) = data[start + 1..].find(",\"") {
                         end
                     } else {
@@ -449,8 +454,8 @@ impl JsonDeserializer {
     ///
 
     pub fn deserialize(mut data: String) -> Result<JsonObject, JsonError> {
-        if data=="" {
-            return Err(ParseError)
+        if data == "" {
+            return Err(ParseError);
         }
         let mut ret = JsonObject::new();
         data = Self::clean_json(&data);
@@ -511,7 +516,7 @@ impl JsonSerializer {
             ));
         }
         ret.pop();
-        let c=ret.pop().unwrap();
+        let c = ret.pop().unwrap();
         if !new_lines {
             ret.push(c)
         } else {
@@ -595,10 +600,11 @@ impl TryFrom<String> for JsonObject {
         JsonDeserializer::deserialize(value)
     }
 }
-impl From<u128> for JsonData{
+impl From<u128> for JsonData {
     fn from(value: u128) -> Self {
-        JsonData{
-            data_type:JsonType::Integer,data:value.to_string()
+        JsonData {
+            data_type: JsonType::Integer,
+            data: value.to_string(),
         }
     }
 }
@@ -616,9 +622,7 @@ impl JsonData {
             JsonType::Integer => self.data.clone(),
             JsonType::Boolean => self.data.clone(),
             JsonType::Float => self.data.clone(),
-            JsonType::Array => {
-                JsonSerializer::serialize_array(self.as_array().unwrap())
-            }
+            JsonType::Array => JsonSerializer::serialize_array(self.as_array().unwrap()),
             JsonType::Object => JsonSerializer::serialize_with_spacer(
                 JsonObject::try_from(self.data.clone()).unwrap(),
                 spacer + 1,
@@ -1044,18 +1048,23 @@ impl From<JsonObject> for JsonData {
         Self::infer_from_string(JsonSerializer::serialize(value)).unwrap()
     }
 }
-impl<T> From<Vec<T>> for JsonData where T: Into<JsonData> {
+impl<T> From<Vec<T>> for JsonData
+where
+    T: Into<JsonData>,
+{
     fn from(vec: Vec<T>) -> Self {
         let mut array = JsonArray::new();
         for item in vec {
             array.push(item.into());
         }
         JsonData::new(JsonSerializer::serialize_array(array), JsonType::Array)
-
     }
 }
 
-impl<T> TryFrom<JsonData> for Vec<T> where T:TryFrom<JsonData> {
+impl<T> TryFrom<JsonData> for Vec<T>
+where
+    T: TryFrom<JsonData>,
+{
     type Error = JsonError;
     fn try_from(json: JsonData) -> Result<Self, Self::Error> {
         let mut vec = Vec::new();
@@ -1066,7 +1075,6 @@ impl<T> TryFrom<JsonData> for Vec<T> where T:TryFrom<JsonData> {
         }
         Ok(vec)
     }
-
 }
 
 #[cfg(test)]
@@ -1074,7 +1082,7 @@ mod tests {
     use super::*;
     #[test]
     fn test_create_json() {
-        let mut json=JsonObject::new();
+        let mut json = JsonObject::new();
         println!("json is: \n{}", JsonSerializer::serialize(json.clone()));
         json.insert("name".to_string(), "John".to_string().into());
         json.insert("age".to_string(), 30.into());
@@ -1141,25 +1149,26 @@ mod tests {
     #[test]
     fn test_array_test() {
         let mut array = vec![1u8, 2, 3, 4, 5];
-        let mut json:JsonData=array.try_into().unwrap();
+        let mut json: JsonData = array.try_into().unwrap();
         println!("json is \n{}", json.as_string());
     }
     #[test]
     fn test_single_json() {
-        let mut json=JsonObject::new();
-        json.insert("test".to_string(),JsonData::from_string("test".to_string()));
+        let mut json = JsonObject::new();
+        json.insert(
+            "test".to_string(),
+            JsonData::from_string("test".to_string()),
+        );
         println!("json is: \n{}", JsonSerializer::serialize(json.clone()));
     }
     #[test]
     fn test_empty_array() {
-        let mut json=JsonObject::new();
-        let json_arr=JsonArray::new();
-        let json_arr_internal:JsonData=json_arr.into();
+        let mut json = JsonObject::new();
+        let json_arr = JsonArray::new();
+        let json_arr_internal: JsonData = json_arr.into();
         println!("json is: \n{}", json_arr_internal.data);
         json.insert("test".to_string(), json_arr_internal);
 
         println!("json is: \n{}", JsonSerializer::serialize(json));
     }
 }
-
-

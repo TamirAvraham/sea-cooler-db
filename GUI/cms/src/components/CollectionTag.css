@@ -1,0 +1,17 @@
+.collection-tag{
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    margin: 0;
+}
+.collection-filed{
+    display: flex;
+    justify-content: flex-start;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    align-items: center;
+}
+.collection-filed ul{
+    list-style: none;
+}

@@ -140,7 +140,7 @@ static RC: [u8; ROUND_COUNT] = [
     0x00, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1B, 0x36,
 ];
 static MIX_CONST: [u8; MATRIX_SIZE] = [2, 1, 1, 3];
-static  INVERSE_MIX_CONST:[u8;MATRIX_SIZE]=[14,9,13,11];
+static INVERSE_MIX_CONST: [u8; MATRIX_SIZE] = [14, 9, 13, 11];
 
 fn clone_into_array<A, T>(slice: &[T]) -> A
 where
@@ -265,7 +265,7 @@ fn substitute_word(word: &[u8; MATRIX_SIZE]) -> [u8; MATRIX_SIZE] {
 ///
 
 fn xor_words(word1: &[u8; MATRIX_SIZE], word2: &[u8; MATRIX_SIZE]) -> [u8; MATRIX_SIZE] {
-    let mut result=[0;MATRIX_SIZE];
+    let mut result = [0; MATRIX_SIZE];
     for i in 0..4 {
         result[i] = word1[i] ^ word2[i];
     }
@@ -391,7 +391,7 @@ fn galois_multiplication(ap: u8, bp: u8) -> u8 {
 ///
 /// * `state`: 4x4 matrix to be un shifted
 /// * `encryption` : encrypt the data or decrypt it?
-fn mix_columns(state: &mut [[u8; MATRIX_SIZE]; MATRIX_SIZE],encryption:bool) {
+fn mix_columns(state: &mut [[u8; MATRIX_SIZE]; MATRIX_SIZE], encryption: bool) {
     for i in 0..MATRIX_SIZE {
         //get a row
         let mut row = [0u8; MATRIX_SIZE];
@@ -406,15 +406,17 @@ fn mix_columns(state: &mut [[u8; MATRIX_SIZE]; MATRIX_SIZE],encryption:bool) {
         state.iter_mut().for_each(|arr| {
             arr[i] = row
                 .iter()
-                .zip(if encryption { MIX_CONST } else { INVERSE_MIX_CONST })
+                .zip(if encryption {
+                    MIX_CONST
+                } else {
+                    INVERSE_MIX_CONST
+                })
                 .map(|(&cell, const_value)| galois_multiplication(cell, const_value))
                 .fold(0u8, |acc, x| acc ^ x);
             row.rotate_right(1);
         })
     }
 }
-
-
 
 pub fn encrypt_aes128(key_bytes: &[u8; 16], bytes: &[u8]) -> Vec<u8> {
     if bytes.len() % 16 != 0 {
@@ -460,7 +462,7 @@ fn encrypt_block_aes128(expanded_key: &[[u8; 4]; 44], bytes: &[u8; 16]) -> [u8; 
     for i in 1..10 {
         substitute_bytes(&mut state);
         shift_rows(&mut state);
-        mix_columns(&mut state,true);
+        mix_columns(&mut state, true);
         add_round_key(
             &mut state,
             &clone_into_array(&expanded_key[i * 4..(i + 1) * 4]),
@@ -491,21 +493,21 @@ fn encrypt_block_aes128(expanded_key: &[[u8; 4]; 44], bytes: &[u8; 16]) -> [u8; 
 ///
 /// # Examples
 ///
-pub fn decrypt_aes128(key_bytes: &[u8; MATRIX_SIZE*MATRIX_SIZE], bytes: &[u8]) -> Vec<u8> {
-    if bytes.len() % MATRIX_SIZE*MATRIX_SIZE != 0 {
+pub fn decrypt_aes128(key_bytes: &[u8; MATRIX_SIZE * MATRIX_SIZE], bytes: &[u8]) -> Vec<u8> {
+    if bytes.len() % MATRIX_SIZE * MATRIX_SIZE != 0 {
         panic!("Input is not multiple of 16 bytes!");
     }
     let expanded_key = key_schedule_aes128(key_bytes);
     let mut result = vec![0u8; bytes.len()];
 
-    for i in 0..bytes.len() / (MATRIX_SIZE*MATRIX_SIZE) {
-        let mut block = [0u8; MATRIX_SIZE*MATRIX_SIZE];
-        for j in 0..(MATRIX_SIZE*MATRIX_SIZE) {
-            block[j] = bytes[i * (MATRIX_SIZE*MATRIX_SIZE) + j];
+    for i in 0..bytes.len() / (MATRIX_SIZE * MATRIX_SIZE) {
+        let mut block = [0u8; MATRIX_SIZE * MATRIX_SIZE];
+        for j in 0..(MATRIX_SIZE * MATRIX_SIZE) {
+            block[j] = bytes[i * (MATRIX_SIZE * MATRIX_SIZE) + j];
         }
         block = decrypt_block_aes128(&expanded_key, &block);
-        for j in 0..MATRIX_SIZE*MATRIX_SIZE {
-            result[i * MATRIX_SIZE*MATRIX_SIZE + j] = block[j];
+        for j in 0..MATRIX_SIZE * MATRIX_SIZE {
+            result[i * MATRIX_SIZE * MATRIX_SIZE + j] = block[j];
         }
     }
 
@@ -522,24 +524,32 @@ pub fn decrypt_aes128(key_bytes: &[u8; MATRIX_SIZE*MATRIX_SIZE], bytes: &[u8]) -
 /// returns: [u8; 16]
 ///
 
-fn decrypt_block_aes128(expanded_key: &[[u8; MATRIX_SIZE]; MATRIX_SIZE*ROUND_COUNT], bytes: &[u8; MATRIX_SIZE*MATRIX_SIZE]) -> [u8; MATRIX_SIZE*MATRIX_SIZE] {
-    let mut result = [0u8; MATRIX_SIZE*MATRIX_SIZE];
+fn decrypt_block_aes128(
+    expanded_key: &[[u8; MATRIX_SIZE]; MATRIX_SIZE * ROUND_COUNT],
+    bytes: &[u8; MATRIX_SIZE * MATRIX_SIZE],
+) -> [u8; MATRIX_SIZE * MATRIX_SIZE] {
+    let mut result = [0u8; MATRIX_SIZE * MATRIX_SIZE];
 
     let mut state = [[0u8; MATRIX_SIZE]; MATRIX_SIZE];
     for i in 0..16 {
         state[i % MATRIX_SIZE][i / MATRIX_SIZE] = bytes[i];
     }
 
-    add_round_key(&mut state, &clone_into_array(&expanded_key[MATRIX_SIZE*(ROUND_COUNT-1)..MATRIX_SIZE*ROUND_COUNT]));
+    add_round_key(
+        &mut state,
+        &clone_into_array(
+            &expanded_key[MATRIX_SIZE * (ROUND_COUNT - 1)..MATRIX_SIZE * ROUND_COUNT],
+        ),
+    );
     inverse_shift_rows(&mut state);
     inverse_substitute_bytes(&mut state);
 
-    for i in (1..ROUND_COUNT-1).rev() {
+    for i in (1..ROUND_COUNT - 1).rev() {
         add_round_key(
             &mut state,
             &clone_into_array(&expanded_key[i * MATRIX_SIZE..(i + 1) * MATRIX_SIZE]),
         );
-        mix_columns(&mut state,false);
+        mix_columns(&mut state, false);
         inverse_shift_rows(&mut state);
         inverse_substitute_bytes(&mut state);
     }
@@ -563,8 +573,7 @@ mod tests {
         let mut matrix1 = [[0, 1, 2, 3], [0, 1, 2, 3], [0, 1, 2, 3], [0, 1, 2, 3]];
         let mut matrix2 = matrix1.clone();
 
-        mix_columns(&mut matrix1,false);
-
+        mix_columns(&mut matrix1, false);
 
         assert_eq!(matrix2, matrix1)
     }

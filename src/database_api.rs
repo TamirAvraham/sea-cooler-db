@@ -1,4 +1,3 @@
-use std::cell::RefCell;
 use crate::collection::CollectionError;
 use crate::database::{DataBase, DataBaseError};
 use crate::http_parser::{HttpMethod, HttpRequest};
@@ -6,6 +5,7 @@ use crate::http_server::{HttpResponse, HttpServer, HttpStatusCode};
 use crate::json::{JsonArray, JsonData, JsonDeserializer, JsonObject, JsonSerializer};
 use crate::user_system::{UserPermissions, UserSystemError};
 use crate::validation_json::{JsonValidationError, ValidationJson};
+use std::cell::RefCell;
 use std::sync::{Arc, RwLock};
 
 fn response_from_string(status_code: HttpStatusCode, message: &str) -> HttpResponse {
@@ -54,7 +54,10 @@ fn login(http_request: HttpRequest) -> Option<HttpResponse> {
                     Ok(token) => {
                         let mut json = JsonObject::new();
                         json.insert("user_id".to_string(), token.into());
-                        HttpResponse::new_from_json(HttpStatusCode::OK, JsonSerializer::serialize(json))
+                        HttpResponse::new_from_json(
+                            HttpStatusCode::OK,
+                            JsonSerializer::serialize(json),
+                        )
                     }
                     Err(err) => match err {
                         DataBaseError::UserSystemError(err) => match err {
@@ -109,8 +112,11 @@ fn signup(http_request: HttpRequest) -> Option<HttpResponse> {
                     Ok(user_id) => {
                         let mut json = JsonObject::new();
                         json.insert("user_id".to_string(), user_id.into());
-                        HttpResponse::new_from_json(HttpStatusCode::OK, JsonSerializer::serialize(json))
-                    },
+                        HttpResponse::new_from_json(
+                            HttpStatusCode::OK,
+                            JsonSerializer::serialize(json),
+                        )
+                    }
                     Err(err) => match err {
                         DataBaseError::UserSystemError(err) => match err {
                             UserSystemError::UserAlreadyLoggedIn => {
@@ -171,16 +177,12 @@ pub fn create_new_collection(http_request: HttpRequest) -> Option<HttpResponse> 
                             Some(structure),
                             user_id,
                         ) {
-                            Ok(_) => {
-                                Some(ok_response())
-                            }
-                            Err(e) => {
-                                Some(send_db_error_msg(e,"create new collection"))
-                            }
+                            Ok(_) => Some(ok_response()),
+                            Err(e) => Some(send_db_error_msg(e, "create new collection")),
                         }
                     } else {
                         Some(internal_error_response("Db was not created"))
-                    }
+                    };
                 }
             }
             invalid_request_response("Collection structure was not formatted correctly")
@@ -203,20 +205,29 @@ pub fn create_new_collection(http_request: HttpRequest) -> Option<HttpResponse> 
         invalid_request_response("Collection structure was not found")
     })
 }
-const COLLECTIONS_INFO_URL:&str="/collections";
-const COLLECTIONS_INFO_METHOD:HttpMethod=HttpMethod::GET;
-pub fn collections_info(http_request:HttpRequest)->Option<HttpResponse>{
+const COLLECTIONS_INFO_URL: &str = "/collections";
+const COLLECTIONS_INFO_METHOD: HttpMethod = HttpMethod::GET;
+pub fn collections_info(http_request: HttpRequest) -> Option<HttpResponse> {
     return Some(match http_request.get_param("collection_name") {
         None => {
             if let Some(db) = get_data_base() {
-                let collections = db.read().unwrap().get_all_collections().iter().map(|collection| {
-                    let mut json = JsonObject::new();
-                    json.insert(collection.name.clone(), JsonData::from(collection.to_json()));
-                    json
-                }).fold(JsonArray::new(), |mut arr, collection_as_json| {
-                    arr.push(JsonData::from(collection_as_json));
-                    arr
-                });
+                let collections = db
+                    .read()
+                    .unwrap()
+                    .get_all_collections()
+                    .iter()
+                    .map(|collection| {
+                        let mut json = JsonObject::new();
+                        json.insert(
+                            collection.name.clone(),
+                            JsonData::from(collection.to_json()),
+                        );
+                        json
+                    })
+                    .fold(JsonArray::new(), |mut arr, collection_as_json| {
+                        arr.push(JsonData::from(collection_as_json));
+                        arr
+                    });
 
                 let mut json = JsonObject::new();
                 json.insert("collections".to_string(), collections.into());
@@ -228,8 +239,8 @@ pub fn collections_info(http_request:HttpRequest)->Option<HttpResponse>{
         }
         Some(collection_name) => {
             if let Some(db) = get_data_base() {
-                let db=db.read().unwrap();
-                let collection_name=collection_name.to_string();
+                let db = db.read().unwrap();
+                let collection_name = collection_name.to_string();
                 let collection = db.get_collection(&collection_name);
                 if let Some(collection) = collection {
                     let mut json = JsonObject::new();
@@ -242,8 +253,7 @@ pub fn collections_info(http_request:HttpRequest)->Option<HttpResponse>{
                 internal_error_response("Db not created")
             }
         }
-    })
-
+    });
 }
 //--------------------------------------- Collection CRUD part of the api --------------------------------------------//
 fn get_collection_name(http_request: &HttpRequest) -> Result<String, HttpResponse> {
@@ -345,7 +355,9 @@ fn insert_document_into_collection(http_request: HttpRequest) -> Option<HttpResp
             Some(internal_error_response("Db was not created"))
         }
     } else {
-        Some(invalid_request_response("Json didnt not have properly formatted data"))
+        Some(invalid_request_response(
+            "Json didnt not have properly formatted data",
+        ))
     }
 }
 fn update_document_in_collection(http_request: HttpRequest) -> Option<HttpResponse> {
@@ -392,7 +404,9 @@ fn update_document_in_collection(http_request: HttpRequest) -> Option<HttpRespon
             Some(internal_error_response("Db was not created"))
         }
     } else {
-        Some(invalid_request_response("Json didnt not have properly formatted data"))
+        Some(invalid_request_response(
+            "Json didnt not have properly formatted data",
+        ))
     }
 }
 fn delete_document_in_collection(http_request: HttpRequest) -> Option<HttpResponse> {
@@ -422,7 +436,7 @@ fn delete_document_in_collection(http_request: HttpRequest) -> Option<HttpRespon
         Some(internal_error_response("Db was not created"))
     }
 }
-fn get_all_collection_documents(collection_name:&String,user_id:u128) -> HttpResponse{
+fn get_all_collection_documents(collection_name: &String, user_id: u128) -> HttpResponse {
     if let Some(db) = get_data_base() {
         match db
             .read()
@@ -430,13 +444,10 @@ fn get_all_collection_documents(collection_name:&String,user_id:u128) -> HttpRes
             .get_all_documents_from_collection(&collection_name, user_id)
         {
             Ok(value) => {
-                let mut json=JsonObject::new();
-                json.insert("documents".to_string(),value.into());
-                HttpResponse::new_from_json(
-                HttpStatusCode::OK,
-                JsonSerializer::serialize(json),
-                )
-            },
+                let mut json = JsonObject::new();
+                json.insert("documents".to_string(), value.into());
+                HttpResponse::new_from_json(HttpStatusCode::OK, JsonSerializer::serialize(json))
+            }
 
             Err(err) => send_db_error_msg(err, "read"),
         }
@@ -495,50 +506,87 @@ pub fn start_db_api(db_name: String) {
     db_server.add_route(SIGNUP_METHOD, SIGNUP_URL, signup);
 
     //collection parts of the api
-    db_server.add_route(CREATE_NEW_COLLECTION_METHOD,CREATE_NEW_COLLECTION_URL,create_new_collection);
-    db_server.add_route(COLLECTIONS_INFO_METHOD,COLLECTIONS_INFO_URL,collections_info);
-
+    db_server.add_route(
+        CREATE_NEW_COLLECTION_METHOD,
+        CREATE_NEW_COLLECTION_URL,
+        create_new_collection,
+    );
+    db_server.add_route(
+        COLLECTIONS_INFO_METHOD,
+        COLLECTIONS_INFO_URL,
+        collections_info,
+    );
 
     //collection CRUD parts of the api
-    db_server.add_route(HttpMethod::POST, COLLECTION_CRUD_URL, insert_document_into_collection);
-    db_server.add_route(HttpMethod::PUT, COLLECTION_CRUD_URL, update_document_in_collection);
-    db_server.add_route(HttpMethod::DELETE, COLLECTION_CRUD_URL, delete_document_in_collection);
-    db_server.add_route(HttpMethod::GET, COLLECTION_CRUD_URL, read_document_from_collection);
+    db_server.add_route(
+        HttpMethod::POST,
+        COLLECTION_CRUD_URL,
+        insert_document_into_collection,
+    );
+    db_server.add_route(
+        HttpMethod::PUT,
+        COLLECTION_CRUD_URL,
+        update_document_in_collection,
+    );
+    db_server.add_route(
+        HttpMethod::DELETE,
+        COLLECTION_CRUD_URL,
+        delete_document_in_collection,
+    );
+    db_server.add_route(
+        HttpMethod::GET,
+        COLLECTION_CRUD_URL,
+        read_document_from_collection,
+    );
 
     db_server.listen();
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::user_system::{UserSystem, UserType};
     use super::*;
+    use crate::user_system::{UserSystem, UserType};
     //static error
     #[test]
     fn test_user_api() {
         start_db_api("api_test_db".to_string());
-        loop {
-
-        }
+        loop {}
     }
     #[test]
     fn test_database_saving() {
-        let db_name="test_db".to_string();
+        let db_name = "test_db".to_string();
         let collection_name = "tc".to_string();
-        let doc_name="doc1".to_string();
+        let doc_name = "doc1".to_string();
 
-        let mut test_json=JsonObject::new();
+        let mut test_json = JsonObject::new();
 
-        let username="XXXX".to_string();
-        let password="XXXX".to_string();
+        let username = "XXXX".to_string();
+        let password = "XXXX".to_string();
 
-        test_json.insert("test".to_string(),JsonData::from_string("test".to_string()));
+        test_json.insert(
+            "test".to_string(),
+            JsonData::from_string("test".to_string()),
+        );
 
         {
             let db = set_up_db(db_name.clone()).expect("Could not create db");
             let mut db = db.write().unwrap();
-            let user_1=db.signup(username.clone(), password.clone(),UserType::Admin.get_permissions()).unwrap();
-            db.create_collection(collection_name.clone(), None,user_1).unwrap();
-            db.insert_into_collection(&collection_name,doc_name.clone(),test_json.clone(),user_1).unwrap();
+            let user_1 = db
+                .signup(
+                    username.clone(),
+                    password.clone(),
+                    UserType::Admin.get_permissions(),
+                )
+                .unwrap();
+            db.create_collection(collection_name.clone(), None, user_1)
+                .unwrap();
+            db.insert_into_collection(
+                &collection_name,
+                doc_name.clone(),
+                test_json.clone(),
+                user_1,
+            )
+            .unwrap();
             unsafe {
                 DATABASE = None;
             }
@@ -547,14 +595,16 @@ mod tests {
 
         let db = set_up_db(db_name.clone()).expect("Could not create db");
         let mut db = db.write().unwrap();
-        let user_2=db.login(username.clone(), password.clone()).unwrap();
-        let doc=db.get_from_collection(&collection_name, doc_name.clone(), user_2).unwrap().unwrap();
-        assert_eq!(doc,test_json);
-
+        let user_2 = db.login(username.clone(), password.clone()).unwrap();
+        let doc = db
+            .get_from_collection(&collection_name, doc_name.clone(), user_2)
+            .unwrap()
+            .unwrap();
+        assert_eq!(doc, test_json);
     }
     #[test]
     fn delete_test_db() {
-        let mut db=DataBase::new("test_db".to_string()).expect("Could not create db");
+        let mut db = DataBase::new("test_db".to_string()).expect("Could not create db");
         db.login("XXXX".to_string(), "XXXX".to_string()).unwrap();
         db.erase(1).unwrap();
     }

@@ -1,5 +1,5 @@
-use std::{cell::Cell, sync::Once, ops::Deref, path::Path, fs, io};
-/* 
+use std::{cell::Cell, fs, io, ops::Deref, path::Path, sync::Once};
+/*
 pub struct Lazy<T, F = fn() -> T> {
     value: Option<T>,
     once: Once,
@@ -47,7 +47,7 @@ impl<T,F> Deref for Lazy<T,F> where F: FnOnce()->T{
 pub fn get_cpu_cores() -> usize {
     if let Ok(cores) = std::env::var("NUMBER_OF_PROCESSORS") {
         if let Ok(cores) = cores.parse::<usize>() {
-            return cores - 1 ;
+            return cores - 1;
         }
     }
     0
@@ -61,11 +61,11 @@ pub fn copy_file(source_path: &str, destination_path: &str) -> io::Result<()> {
 }
 
 #[cfg(test)]
-mod tests{
+mod tests {
     use crate::helpers::get_cpu_cores;
 
     #[test]
     fn test_cpu_cores() {
-       println!("cpu cores {}",get_cpu_cores());
+        println!("cpu cores {}", get_cpu_cores());
     }
 }

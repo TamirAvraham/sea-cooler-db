@@ -1,13 +1,14 @@
 use crate::encryption::EncryptionService;
 use crate::json::{JsonDeserializer, JsonError, JsonObject, JsonSerializer};
+use crate::key_value_store::KeyValueStore;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::sync::{Arc, RwLock};
-use crate::key_value_store::KeyValueStore;
 
 pub const PASS_HASH_VALUE: &str = "validator";
-const PRE_DEFINED_USER_TYPES_INTERNAL_ERROR_MESSAGE:&str ="there was an internal error in the database for changing user permissions";
-#[derive(Debug,PartialEq)]
+const PRE_DEFINED_USER_TYPES_INTERNAL_ERROR_MESSAGE: &str =
+    "there was an internal error in the database for changing user permissions";
+#[derive(Debug, PartialEq)]
 pub enum UserSystemError {
     PermissionError,
     ImproperJsonStructure,
@@ -90,13 +91,13 @@ pub enum UserType {
     Guest,
 }
 
-#[derive(PartialEq,Debug, Clone)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct UserPermissions {
     database_permissions: Option<Vec<DataBasePermission>>,
-    specific_collections:HashMap<String, Option<Vec<CollectionPermission>>>,
-    all_collections:Option<Vec<CollectionPermission>>,
+    specific_collections: HashMap<String, Option<Vec<CollectionPermission>>>,
+    all_collections: Option<Vec<CollectionPermission>>,
 }
-#[derive(Debug,PartialEq,Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct User {
     username: String,
     password: Vec<u8>,
@@ -113,11 +114,15 @@ impl UserType {
             }
             &UserType::User => {
                 user_permissions
-                    .add_db_permission(DataBasePermission::Listen).set_collections_permissions_to_all();
+                    .add_db_permission(DataBasePermission::Listen)
+                    .set_collections_permissions_to_all();
             }
             &UserType::Guest => {
-                user_permissions.add_collection_permission(None, CollectionPermission::Read).expect(PRE_DEFINED_USER_TYPES_INTERNAL_ERROR_MESSAGE).add_db_permission(DataBasePermission::Listen);
-            },
+                user_permissions
+                    .add_collection_permission(None, CollectionPermission::Read)
+                    .expect(PRE_DEFINED_USER_TYPES_INTERNAL_ERROR_MESSAGE)
+                    .add_db_permission(DataBasePermission::Listen);
+            }
         };
         user_permissions
     }
@@ -151,8 +156,9 @@ impl UserPermissions {
                         collection_permissions.push(permission);
                     }
                 }
-            }else {
-                self.specific_collections.insert(name, Some(vec![permission]));
+            } else {
+                self.specific_collections
+                    .insert(name, Some(vec![permission]));
             }
         } else {
             if let Some(all_collections) = &mut self.all_collections {
@@ -197,9 +203,10 @@ impl UserPermissions {
 
         if let Some(collection_permissions) = &self.all_collections {
             for collection_permission in collection_permissions {
-                all_collection_permissions_as_json.insert(collection_permission.to_string(), true.into());
+                all_collection_permissions_as_json
+                    .insert(collection_permission.to_string(), true.into());
             }
-        }else {
+        } else {
             all_collection_permissions_as_json.insert("all".to_string(), true.into());
         }
 
@@ -220,7 +227,6 @@ impl UserPermissions {
             );
         }
 
-
         self_as_json.insert("db permissions".to_string(), db_permissions_as_json.into());
         self_as_json.insert(
             "all collection permissions".to_string(),
@@ -234,11 +240,20 @@ impl UserPermissions {
         self_as_json
     }
 
-    pub fn from_json(json: JsonObject) -> Result<UserPermissions,UserSystemError> {
+    pub fn from_json(json: JsonObject) -> Result<UserPermissions, UserSystemError> {
         let mut user_permissions = UserPermissions::new();
-        let db_permissions = json.get(&"db permissions".to_string()).ok_or(UserSystemError::ImproperJsonStructure)?.as_object()?;
-        let all_collection_permissions = json.get(&"all collection permissions".to_string()).ok_or(UserSystemError::ImproperJsonStructure)?.as_object()?;
-        let specific_permissions = json.get(&"specific collection permissions".to_string()).ok_or(UserSystemError::ImproperJsonStructure)?.as_object()?;
+        let db_permissions = json
+            .get(&"db permissions".to_string())
+            .ok_or(UserSystemError::ImproperJsonStructure)?
+            .as_object()?;
+        let all_collection_permissions = json
+            .get(&"all collection permissions".to_string())
+            .ok_or(UserSystemError::ImproperJsonStructure)?
+            .as_object()?;
+        let specific_permissions = json
+            .get(&"specific collection permissions".to_string())
+            .ok_or(UserSystemError::ImproperJsonStructure)?
+            .as_object()?;
         if db_permissions.get(&"all".to_string()).is_some() {
             user_permissions.set_db_permissions_to_all();
         } else {
@@ -257,19 +272,19 @@ impl UserPermissions {
                 }
             }
         }
-        for (collection_name,value) in specific_permissions {
+        for (collection_name, value) in specific_permissions {
             let collection_permissions = value.as_object()?;
             if collection_permissions.get(&"all".to_string()).is_some() {
                 user_permissions.set_collection_permissions_to_all(collection_name.clone());
-            }else {
+            } else {
                 for (key, _) in collection_permissions.into_iter() {
                     if let Ok(permission) = CollectionPermission::try_from(key.as_str()) {
-                        user_permissions.add_collection_permission(Some(collection_name.clone()), permission)?;
+                        user_permissions
+                            .add_collection_permission(Some(collection_name.clone()), permission)?;
                     }
                 }
             }
         }
-
 
         Ok(user_permissions)
     }
@@ -301,50 +316,70 @@ impl User {
         );
         self_as_json
     }
-    pub fn from_json(json: JsonObject) -> Result<User,UserSystemError> {
-        let username = json.get(&"username".to_string()).ok_or(UserSystemError::ImproperJsonStructure)?.as_string();
-        let password:Vec<u8> = (*json.get(&"password".to_string()).ok_or(UserSystemError::ImproperJsonStructure)?).clone().try_into()?;
-        let permissions = json.get(&"permissions".to_string()).ok_or(UserSystemError::ImproperJsonStructure)?.as_object()?;
+    pub fn from_json(json: JsonObject) -> Result<User, UserSystemError> {
+        let username = json
+            .get(&"username".to_string())
+            .ok_or(UserSystemError::ImproperJsonStructure)?
+            .as_string();
+        let password: Vec<u8> = (*json
+            .get(&"password".to_string())
+            .ok_or(UserSystemError::ImproperJsonStructure)?)
+        .clone()
+        .try_into()?;
+        let permissions = json
+            .get(&"permissions".to_string())
+            .ok_or(UserSystemError::ImproperJsonStructure)?
+            .as_object()?;
 
         let user_permissions = UserPermissions::from_json(permissions)?;
-        Ok(User{
+        Ok(User {
             username,
             password,
             user_permissions,
         })
-        
     }
 }
 
 #[cfg(test)]
 mod user_tests {
-    use crate::json::JsonSerializer;
     use super::*;
+    use crate::json::JsonSerializer;
     #[test]
     fn test_user_permissions_from_user_types() {
-        let admin=User::new_from_user_type(UserType::Admin, "admin".to_string(), "123456".to_string());
-        let user=User::new_from_user_type(UserType::User, "user".to_string(), "123456".to_string());
-        let guest=User::new_from_user_type(UserType::Guest, "guest".to_string(), "123456".to_string());
+        let admin =
+            User::new_from_user_type(UserType::Admin, "admin".to_string(), "123456".to_string());
+        let user =
+            User::new_from_user_type(UserType::User, "user".to_string(), "123456".to_string());
+        let guest =
+            User::new_from_user_type(UserType::Guest, "guest".to_string(), "123456".to_string());
 
-        assert_eq!(admin.user_permissions.database_permissions,None);
-        assert_eq!(admin.user_permissions.all_collections,None);
-        assert_eq!(user.user_permissions.database_permissions,Some(vec![DataBasePermission::Listen]));
-        assert_eq!(user.user_permissions.all_collections,None);
-        assert_eq!(guest.user_permissions.database_permissions,Some(vec![DataBasePermission::Listen]));
-        assert_eq!(guest.user_permissions.all_collections,Some(vec![CollectionPermission::Read]));
+        assert_eq!(admin.user_permissions.database_permissions, None);
+        assert_eq!(admin.user_permissions.all_collections, None);
+        assert_eq!(
+            user.user_permissions.database_permissions,
+            Some(vec![DataBasePermission::Listen])
+        );
+        assert_eq!(user.user_permissions.all_collections, None);
+        assert_eq!(
+            guest.user_permissions.database_permissions,
+            Some(vec![DataBasePermission::Listen])
+        );
+        assert_eq!(
+            guest.user_permissions.all_collections,
+            Some(vec![CollectionPermission::Read])
+        );
 
-        println!("admin = {}",JsonSerializer::serialize(admin.to_json()));
-        println!("user = {}",JsonSerializer::serialize(user.to_json()));
-        println!("guest = {}",JsonSerializer::serialize(guest.to_json()));
+        println!("admin = {}", JsonSerializer::serialize(admin.to_json()));
+        println!("user = {}", JsonSerializer::serialize(user.to_json()));
+        println!("guest = {}", JsonSerializer::serialize(guest.to_json()));
 
         let new_admin = User::from_json(admin.to_json()).unwrap();
         let new_user = User::from_json(user.to_json()).unwrap();
         let new_guest = User::from_json(guest.to_json()).unwrap();
 
-        assert_eq!(new_admin,admin);
-        assert_eq!(new_user,user);
-        assert_eq!(new_guest,guest);
-
+        assert_eq!(new_admin, admin);
+        assert_eq!(new_user, user);
+        assert_eq!(new_guest, guest);
     }
     #[test]
     fn test_custom_users() {
@@ -353,167 +388,247 @@ mod user_tests {
         let test_collection_name = "test collection".to_string();
         user_permissions
             .add_db_permission(DataBasePermission::Create)
-            .add_db_permission(DataBasePermission::Listen).add_db_permission(DataBasePermission::Drop)
-            .add_collection_permission(Some(test_collection_partial_name.clone()),CollectionPermission::Insert).unwrap()
-            .add_collection_permission(Some(test_collection_partial_name.clone()),CollectionPermission::Update).unwrap()
+            .add_db_permission(DataBasePermission::Listen)
+            .add_db_permission(DataBasePermission::Drop)
+            .add_collection_permission(
+                Some(test_collection_partial_name.clone()),
+                CollectionPermission::Insert,
+            )
+            .unwrap()
+            .add_collection_permission(
+                Some(test_collection_partial_name.clone()),
+                CollectionPermission::Update,
+            )
+            .unwrap()
             .set_collection_permissions_to_all(test_collection_name.clone());
-        let user = User::new("test".to_string(),"123456".to_string(),user_permissions.clone());
-        println!("user = {}",JsonSerializer::serialize(user.to_json()));
+        let user = User::new(
+            "test".to_string(),
+            "123456".to_string(),
+            user_permissions.clone(),
+        );
+        println!("user = {}", JsonSerializer::serialize(user.to_json()));
         let new_user = User::from_json(user.to_json()).unwrap();
         for permission in new_user.user_permissions.database_permissions.unwrap() {
-            assert!(user_permissions.database_permissions.clone().unwrap().contains(&permission));
+            assert!(user_permissions
+                .database_permissions
+                .clone()
+                .unwrap()
+                .contains(&permission));
         }
         for permission in new_user.user_permissions.all_collections.unwrap() {
-            assert!(user_permissions.all_collections.clone().unwrap().contains(&permission));
+            assert!(user_permissions
+                .all_collections
+                .clone()
+                .unwrap()
+                .contains(&permission));
         }
-        for (collection_name,permissions) in new_user.user_permissions.specific_collections.iter() {
-            assert!(user_permissions.specific_collections.contains_key(collection_name));
+        for (collection_name, permissions) in new_user.user_permissions.specific_collections.iter()
+        {
+            assert!(user_permissions
+                .specific_collections
+                .contains_key(collection_name));
         }
     }
 }
 
-
 pub struct UserSystem {
-    logged_in_users:HashMap<u128,User>,
-    current_user_id:u128,
+    logged_in_users: HashMap<u128, User>,
+    current_user_id: u128,
 }
 
 impl UserSystem {
-    fn new()->Self{
-        Self{
-            logged_in_users:HashMap::new(),
-            current_user_id:0,
+    fn new() -> Self {
+        Self {
+            logged_in_users: HashMap::new(),
+            current_user_id: 0,
         }
     }
-    fn is_user_logged_in(&self, username:&String)->bool{
-        self.logged_in_users.iter().find(|(_,user)| &user.username == username).is_some()
+    fn is_user_logged_in(&self, username: &String) -> bool {
+        self.logged_in_users
+            .iter()
+            .find(|(_, user)| &user.username == username)
+            .is_some()
     }
-    fn add_user_to_logged_in_users(&mut self, user:User)->u128{
+    fn add_user_to_logged_in_users(&mut self, user: User) -> u128 {
         self.current_user_id += 1;
         self.logged_in_users.insert(self.current_user_id, user);
         self.current_user_id
     }
-    fn get_user_from_db(&self,username:&String,kv:&KeyValueStore)->Result<User,UserSystemError>{
-        let user_json = kv.search(format!("u_{}",username)).get().ok_or(UserSystemError::UserDoesNotExist)?;
+    fn get_user_from_db(
+        &self,
+        username: &String,
+        kv: &KeyValueStore,
+    ) -> Result<User, UserSystemError> {
+        let user_json = kv
+            .search(format!("u_{}", username))
+            .get()
+            .ok_or(UserSystemError::UserDoesNotExist)?;
         let user = User::from_json(JsonDeserializer::deserialize(user_json)?)?;
         Ok(user)
     }
-    pub fn signup_using_type(&mut self, username:String, password:String, kv:&mut KeyValueStore, user_type: UserType) ->Result<u128,UserSystemError>{
-        self.signup_with_no_type(username,password,user_type.get_permissions(),kv)
+    pub fn signup_using_type(
+        &mut self,
+        username: String,
+        password: String,
+        kv: &mut KeyValueStore,
+        user_type: UserType,
+    ) -> Result<u128, UserSystemError> {
+        self.signup_with_no_type(username, password, user_type.get_permissions(), kv)
     }
-    pub fn signup_with_no_type(&mut self, username:String, password:String,user_permissions: UserPermissions, kv:&mut KeyValueStore) ->Result<u128,UserSystemError>{
-        if self.is_user_logged_in(&username){
+    pub fn signup_with_no_type(
+        &mut self,
+        username: String,
+        password: String,
+        user_permissions: UserPermissions,
+        kv: &mut KeyValueStore,
+    ) -> Result<u128, UserSystemError> {
+        if self.is_user_logged_in(&username) {
             return Err(UserSystemError::UserAlreadyLoggedIn);
         }
-        if let Ok(e) = self.get_user_from_db(&username,kv){
+        if let Ok(e) = self.get_user_from_db(&username, kv) {
             return Err(UserSystemError::UserAlreadyExists);
         }
-        let user = User::new(username.clone(),password,user_permissions);
-        let res=kv.insert(format!("u_{}",username),JsonSerializer::serialize(user.to_json())).get();
+        let user = User::new(username.clone(), password, user_permissions);
+        let res = kv
+            .insert(
+                format!("u_{}", username),
+                JsonSerializer::serialize(user.to_json()),
+            )
+            .get();
         if let None = res {
             return Err(UserSystemError::UserAlreadyExists);
         }
         Ok(self.add_user_to_logged_in_users(user))
-
     }
-    pub fn guest_login(&mut self,username:String,key_value_store: &KeyValueStore) ->Result<u128,UserSystemError> {
+    pub fn guest_login(
+        &mut self,
+        username: String,
+        key_value_store: &KeyValueStore,
+    ) -> Result<u128, UserSystemError> {
         if self.is_user_logged_in(&username) {
             return Err(UserSystemError::UserAlreadyLoggedIn);
         }
-        if let Ok(_) = self.get_user_from_db(&username,key_value_store){
+        if let Ok(_) = self.get_user_from_db(&username, key_value_store) {
             return Err(UserSystemError::UserAlreadyExists);
         }
-        let user = User::new_from_user_type(UserType::Guest, username, "very password yes yes".to_string());
+        let user = User::new_from_user_type(
+            UserType::Guest,
+            username,
+            "very password yes yes".to_string(),
+        );
         Ok(self.add_user_to_logged_in_users(user))
     }
-    pub fn login(&mut self,username:String,password:String,key_value_store: &KeyValueStore) ->Result<u128,UserSystemError> {
+    pub fn login(
+        &mut self,
+        username: String,
+        password: String,
+        key_value_store: &KeyValueStore,
+    ) -> Result<u128, UserSystemError> {
         if self.is_user_logged_in(&username) {
             return Err(UserSystemError::UserAlreadyLoggedIn);
         }
-        let user = self.get_user_from_db(&username,key_value_store)?;
+        let user = self.get_user_from_db(&username, key_value_store)?;
         if user.password != User::generate_password_hash(password) {
             return Err(UserSystemError::IncorrectPassword);
         }
         Ok(self.add_user_to_logged_in_users(user))
     }
-    pub fn logout(&mut self,user_id:u128) {
+    pub fn logout(&mut self, user_id: u128) {
         self.logged_in_users.remove(&user_id);
-
     }
-    pub fn get_logged_in_user(&self,user_id:u128) ->Result<&User,UserSystemError>{
+    pub fn get_logged_in_user(&self, user_id: u128) -> Result<&User, UserSystemError> {
         if let Some(user) = self.logged_in_users.get(&user_id) {
             Ok(user)
-        }else {
+        } else {
             Err(UserSystemError::UserDoesNotExist)
         }
     }
 
-
-    pub fn modify_user_permissions(&mut self,username:String,user_permissions: UserPermissions,kv:&mut KeyValueStore) ->Result<(),UserSystemError> {
+    pub fn modify_user_permissions(
+        &mut self,
+        username: String,
+        user_permissions: UserPermissions,
+        kv: &mut KeyValueStore,
+    ) -> Result<(), UserSystemError> {
         let user = self.get_user_from_db(&username, kv)?;
-        let new_user = User{username:user.username, password:user.password, user_permissions};
-        kv.update(format!("u_{}", username), JsonSerializer::serialize(new_user.to_json())).get();
+        let new_user = User {
+            username: user.username,
+            password: user.password,
+            user_permissions,
+        };
+        kv.update(
+            format!("u_{}", username),
+            JsonSerializer::serialize(new_user.to_json()),
+        )
+        .get();
         Ok(())
     }
 }
 
-impl User{
-    pub fn is_admin(&self)->bool {
-        self.user_permissions.database_permissions.is_none() && self.user_permissions.all_collections.is_none() && self.user_permissions.specific_collections.is_empty()
+impl User {
+    pub fn is_admin(&self) -> bool {
+        self.user_permissions.database_permissions.is_none()
+            && self.user_permissions.all_collections.is_none()
+            && self.user_permissions.specific_collections.is_empty()
     }
-    fn can_do_for_collection(&self,collection_name:&String,prem:&CollectionPermission)->bool {
-        if let Some(collection_settings) = self.user_permissions.specific_collections.get(collection_name) {
+    fn can_do_for_collection(&self, collection_name: &String, prem: &CollectionPermission) -> bool {
+        if let Some(collection_settings) = self
+            .user_permissions
+            .specific_collections
+            .get(collection_name)
+        {
             if let Some(collection_settings) = collection_settings {
                 collection_settings.contains(prem)
-            }else {
+            } else {
                 true
             }
-        }else {
+        } else {
             if let Some(collections_settings) = &self.user_permissions.all_collections {
                 collections_settings.contains(prem)
-            }else {
+            } else {
                 true
             }
         }
     }
-    fn can_do_for_db(&self,prem:&DataBasePermission)->bool {
+    fn can_do_for_db(&self, prem: &DataBasePermission) -> bool {
         if let Some(db_settings) = &self.user_permissions.database_permissions {
             db_settings.contains(prem)
-        }else {
+        } else {
             true
         }
     }
-    pub fn can_insert(&self,collection_name:&String)->bool {
-        self.can_do_for_collection(collection_name,&CollectionPermission::Insert)
+    pub fn can_insert(&self, collection_name: &String) -> bool {
+        self.can_do_for_collection(collection_name, &CollectionPermission::Insert)
     }
-    pub fn can_update(&self,collection_name:&String)->bool {
-        self.can_do_for_collection(collection_name,&CollectionPermission::Update)
+    pub fn can_update(&self, collection_name: &String) -> bool {
+        self.can_do_for_collection(collection_name, &CollectionPermission::Update)
     }
-    pub fn can_delete(&self,collection_name:&String)->bool {
-        self.can_do_for_collection(collection_name,&CollectionPermission::Delete)
+    pub fn can_delete(&self, collection_name: &String) -> bool {
+        self.can_do_for_collection(collection_name, &CollectionPermission::Delete)
     }
-    pub fn can_read(&self,collection_name:&String)->bool {
-        self.can_do_for_collection(collection_name,&CollectionPermission::Read)
+    pub fn can_read(&self, collection_name: &String) -> bool {
+        self.can_do_for_collection(collection_name, &CollectionPermission::Read)
     }
-    pub fn can_listen(&self)->bool {
+    pub fn can_listen(&self) -> bool {
         self.can_do_for_db(&DataBasePermission::Listen)
     }
-    pub fn can_create(&self)->bool {
+    pub fn can_create(&self) -> bool {
         self.can_do_for_db(&DataBasePermission::Create)
     }
-    pub fn can_drop(&self)->bool {
+    pub fn can_drop(&self) -> bool {
         self.can_do_for_db(&DataBasePermission::Drop)
     }
 }
 
 #[cfg(test)]
 mod user_system_tests {
-    use crate::user_system::UserSystemError::{UserAlreadyExists, UserDoesNotExist, UserNotLoggedIn};
     use super::*;
+    use crate::user_system::UserSystemError::{
+        UserAlreadyExists, UserDoesNotExist, UserNotLoggedIn,
+    };
     #[cfg(test)]
     fn create_kv_for_user_tests() -> KeyValueStore {
         let mut kv = KeyValueStore::new("user system tests".to_string());
-
 
         kv
     }
@@ -525,19 +640,43 @@ mod user_system_tests {
         let username = "XXXX".to_string();
         let password = "XXXX".to_string();
 
-        assert_eq!(user_system.login(username.clone(), password.clone(), &kv),Err(UserSystemError::UserDoesNotExist));
-        assert_eq!(user_system.signup_using_type(username.clone(), password.clone(), &mut kv, user_type),Ok((1)));
-        assert_ne!(user_system.get_logged_in_user(1),Err(UserNotLoggedIn));
-        assert_eq!(user_system.get_logged_in_user(1).unwrap().username,username);
+        assert_eq!(
+            user_system.login(username.clone(), password.clone(), &kv),
+            Err(UserSystemError::UserDoesNotExist)
+        );
+        assert_eq!(
+            user_system.signup_using_type(username.clone(), password.clone(), &mut kv, user_type),
+            Ok((1))
+        );
+        assert_ne!(user_system.get_logged_in_user(1), Err(UserNotLoggedIn));
+        assert_eq!(
+            user_system.get_logged_in_user(1).unwrap().username,
+            username
+        );
         user_system.logout(1);
-        assert_eq!(user_system.get_logged_in_user(1),Err(UserDoesNotExist));
-        assert_eq!(user_system.login(username.clone(), password.clone(), &kv),Ok(2));
-        assert_eq!(user_system.get_logged_in_user(2).unwrap().username,username);
+        assert_eq!(user_system.get_logged_in_user(1), Err(UserDoesNotExist));
+        assert_eq!(
+            user_system.login(username.clone(), password.clone(), &kv),
+            Ok(2)
+        );
+        assert_eq!(
+            user_system.get_logged_in_user(2).unwrap().username,
+            username
+        );
         user_system.logout(2);
         assert_eq!(user_system.get_logged_in_user(2), Err(UserDoesNotExist));
-        assert_eq!(user_system.login(username.clone(), "XXXXX".to_string(), &kv), Err(UserSystemError::IncorrectPassword));
-        assert_eq!(user_system.login("XXXXX".to_string(), password.clone(), &kv), Err(UserSystemError::UserDoesNotExist));
-        assert_eq!(user_system.signup_using_type(username.clone(), password.clone(), &mut kv, user_type), Err(UserAlreadyExists));
+        assert_eq!(
+            user_system.login(username.clone(), "XXXXX".to_string(), &kv),
+            Err(UserSystemError::IncorrectPassword)
+        );
+        assert_eq!(
+            user_system.login("XXXXX".to_string(), password.clone(), &kv),
+            Err(UserSystemError::UserDoesNotExist)
+        );
+        assert_eq!(
+            user_system.signup_using_type(username.clone(), password.clone(), &mut kv, user_type),
+            Err(UserAlreadyExists)
+        );
         kv.erase()
     }
     #[test]
@@ -546,24 +685,34 @@ mod user_system_tests {
     }
     #[test]
     fn test_reload_user_system() {
-        let username="yosi";
-        let password="123456";
+        let username = "yosi";
+        let password = "123456";
         let user_type = UserType::Admin;
         {
             let mut kv = create_kv_for_user_tests();
             let mut user_system = UserSystem::new();
-            user_system.signup_using_type(username.to_string(), password.to_string(), &mut kv, user_type).unwrap();
+            user_system
+                .signup_using_type(
+                    username.to_string(),
+                    password.to_string(),
+                    &mut kv,
+                    user_type,
+                )
+                .unwrap();
         }
         let mut kv = create_kv_for_user_tests();
         let mut user_system = UserSystem::new();
-        assert_eq!(user_system.login(username.to_string(), password.to_string(), &kv), Ok(1));
+        assert_eq!(
+            user_system.login(username.to_string(), password.to_string(), &kv),
+            Ok(1)
+        );
         kv.erase();
     }
 }
 
-static mut  SINGELTON:Option<Arc<RwLock<UserSystem>>> = None;
+static mut SINGELTON: Option<Arc<RwLock<UserSystem>>> = None;
 impl UserSystem {
-    pub fn get_instance()->&'static Arc<RwLock<UserSystem>> {
+    pub fn get_instance() -> &'static Arc<RwLock<UserSystem>> {
         unsafe {
             if SINGELTON.is_none() {
                 SINGELTON = Some(Arc::new(RwLock::new(UserSystem::new())));

@@ -7,9 +7,9 @@ use crate::{
 };
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
-const COLLECTION_START_CHAR:char='!';
-const COLLECTION_END_CHAR:char='~';
-const COLLECTION_PLACEMENTS_CONTENT:&str="hahaha empty like me";
+const COLLECTION_START_CHAR: char = '!';
+const COLLECTION_END_CHAR: char = '~';
+const COLLECTION_PLACEMENTS_CONTENT: &str = "hahaha empty like me";
 #[derive(Debug)]
 pub enum CollectionError {
     InvalidData(JsonValidationError),
@@ -50,15 +50,34 @@ impl Display for Collection {
     }
 }
 impl Collection {
-    pub fn new(structure: Option<ValidationJson>, name: String, kv: &mut KeyValueStore) -> Result<Self,CollectionError> {
-        kv.insert(format!("{}{}",name,COLLECTION_START_CHAR),COLLECTION_PLACEMENTS_CONTENT.to_string()).get();
-        kv.insert(format!("{}{}",name,COLLECTION_END_CHAR),COLLECTION_PLACEMENTS_CONTENT.to_string()).get();
+    pub fn new(
+        structure: Option<ValidationJson>,
+        name: String,
+        kv: &mut KeyValueStore,
+    ) -> Result<Self, CollectionError> {
+        kv.insert(
+            format!("{}{}", name, COLLECTION_START_CHAR),
+            COLLECTION_PLACEMENTS_CONTENT.to_string(),
+        )
+        .get();
+        kv.insert(
+            format!("{}{}", name, COLLECTION_END_CHAR),
+            COLLECTION_PLACEMENTS_CONTENT.to_string(),
+        )
+        .get();
         Ok(Self { name, structure })
     }
-    pub fn new_structured(structure: ValidationJson, name: String, kv: &mut KeyValueStore) -> Result<Collection, CollectionError> {
+    pub fn new_structured(
+        structure: ValidationJson,
+        name: String,
+        kv: &mut KeyValueStore,
+    ) -> Result<Collection, CollectionError> {
         Self::new(Some(structure), name, kv)
     }
-    pub fn new_unstructured(name: String, key_value_store:&mut KeyValueStore) -> Result<Collection, CollectionError> {
+    pub fn new_unstructured(
+        name: String,
+        key_value_store: &mut KeyValueStore,
+    ) -> Result<Collection, CollectionError> {
         Self::new(None, name, key_value_store)
     }
     fn search_index(
@@ -257,10 +276,15 @@ impl Collection {
         &self,
         kv: &KeyValueStore,
     ) -> Result<Vec<JsonObject>, CollectionError> {
-        let mut ret=vec![];
-        let search_result=kv.range_scan(format!("{}{}", self.name, COLLECTION_START_CHAR), format!("{}{}", self.name, COLLECTION_END_CHAR)).get();
+        let mut ret = vec![];
+        let search_result = kv
+            .range_scan(
+                format!("{}{}", self.name, COLLECTION_START_CHAR),
+                format!("{}{}", self.name, COLLECTION_END_CHAR),
+            )
+            .get();
         for doc_as_string in search_result.into_iter() {
-            if &doc_as_string !=COLLECTION_PLACEMENTS_CONTENT && !doc_as_string.is_empty() {
+            if &doc_as_string != COLLECTION_PLACEMENTS_CONTENT && !doc_as_string.is_empty() {
                 ret.push(JsonDeserializer::deserialize(doc_as_string)?);
             }
         }

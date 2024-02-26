@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-#[derive(Debug,PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Error {
     CantSeekToPage(usize),
     CantGetNodesFileForWrite,
@@ -11,7 +11,7 @@ pub enum Error {
     CantReadValue,
     CantReadNode(usize),
     CantWriteNode(usize),
-    CantWriteCacheToDisk((usize,usize)),
+    CantWriteCacheToDisk((usize, usize)),
     CantGetValue,
     BorrowError(usize),
     MergeError(usize),
@@ -21,17 +21,13 @@ pub enum Error {
     MovingCacheError(usize),
     CantDeletePage(usize),
     CantDeleteNode(usize),
-
 }
 
-pub type InternalResult<T>=Result<T,Error>;
+pub type InternalResult<T> = Result<T, Error>;
 
-
-
-
-pub fn map_err<E: std::fmt::Debug>(new_error:Error)->impl FnOnce(E) -> Error{
-    move |e|{
-        println!("error :{:?}",e);
+pub fn map_err<E: std::fmt::Debug>(new_error: Error) -> impl FnOnce(E) -> Error {
+    move |e| {
+        println!("error :{:?}", e);
         new_error
     }
 }

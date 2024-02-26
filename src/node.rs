@@ -176,7 +176,7 @@ impl Node {
     /// * `key`: key to find index of
     ///
     /// returns: Result<usize> (index of key)
-    pub fn location(&self,key: &String) -> Option<usize> {
+    pub fn location(&self, key: &String) -> Option<usize> {
         let mut i = 0;
         while i < self.keys.len() && &self.keys[i] < key {
             i += 1;
@@ -186,8 +186,7 @@ impl Node {
             i >= self.keys.len()
         } else {
             i > self.keys.len()
-        } 
-        {
+        } {
             None
         } else {
             Some(i)
@@ -624,6 +623,4 @@ mod tests {
         assert_eq!(new_parent.keys, vec_to_string_vec(vec![5]));
         new_parent.print_tree(&pager).expect("cnat print tree");
     }
-
-
 }

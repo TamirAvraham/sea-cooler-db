@@ -96,7 +96,7 @@ where
     ///
     /// * `log_type`: what log write the message to
     /// * `message`: message that will be written
-    /// 
+    ///
     /// returns: Result<(), Error>
     pub fn log(&mut self, log_type: LogType, message: String) -> Result<(), LoggerError> {
         let log = format!(
@@ -398,7 +398,7 @@ impl OperationLogger {
     ///
     /// * `op_type`: type of operation to write
     ///
-    /// returns: Result<OperationLog, Error> 
+    /// returns: Result<OperationLog, Error>
     pub fn log_operation(&mut self, op_type: OperationType) -> Result<OperationLog, LoggerError> {
         let mut ret = OperationLog {
             completed: false,
@@ -675,7 +675,7 @@ impl Restorer {
         .map_err(|_| LoggerError::CantRestoreFilesFromBackup)?;
         copy_file(
             &format!("{}{}{}", self.name, NODES_FILE_ENDING, FILE_ENDING),
-            &values_path
+            &values_path,
         )
         .map_err(|_| LoggerError::CantRestoreFilesFromBackup)?;
         Ok(())
@@ -766,7 +766,10 @@ impl Logger {
                     tree.delete(key)
                         .expect(&format!("cant redo operation with id:{}", op.id));
                 }
-                OperationType::Update(key, new_value) => {tree.update(key, &new_value).expect(&format!("cant redo operation with id:{}", op.id));},
+                OperationType::Update(key, new_value) => {
+                    tree.update(key, &new_value)
+                        .expect(&format!("cant redo operation with id:{}", op.id));
+                }
             }
         }
     }
@@ -1138,7 +1141,8 @@ mod tests {
             .expect("Failed to create test log file");
         let mut logger = OperationLogger::new(log_file, 1);
 
-        let op_type = OperationType::Insert("key".to_string(), "value".to_string().as_bytes().to_vec());
+        let op_type =
+            OperationType::Insert("key".to_string(), "value".to_string().as_bytes().to_vec());
         let result = logger.log_operation(op_type.clone());
 
         assert!(result.is_ok());
@@ -1189,7 +1193,8 @@ mod tests {
             .expect("Failed to create test log file");
         let mut logger = OperationLogger::new(log_file, 1);
 
-        let op_type = OperationType::Insert("key".to_string(), "value".to_string().as_bytes().to_vec());
+        let op_type =
+            OperationType::Insert("key".to_string(), "value".to_string().as_bytes().to_vec());
         let log = logger
             .log_operation(op_type.clone())
             .expect("Failed to log operation");
@@ -1215,7 +1220,8 @@ mod tests {
             .expect("Failed to create test log file");
         let mut logger = OperationLogger::new(log_file, 1);
 
-        let op_type = OperationType::Insert("key".to_string(), "value".to_string().as_bytes().to_vec());
+        let op_type =
+            OperationType::Insert("key".to_string(), "value".to_string().as_bytes().to_vec());
         let log = logger
             .log_operation(op_type.clone())
             .expect("Failed to log operation");
@@ -1241,14 +1247,18 @@ mod tests {
             .expect("Failed to create test log file");
         let mut logger = OperationLogger::new(log_file, 1);
 
-        let op_type = OperationType::Insert("key".to_string(), "value".to_string().as_bytes().to_vec());
+        let op_type =
+            OperationType::Insert("key".to_string(), "value".to_string().as_bytes().to_vec());
         let log1 = logger
             .log_operation(op_type.clone())
             .expect("Failed to log operation");
         logger
             .mark_log_as_completed(&log1.start_location)
             .expect("cnat mark log 1 as completed");
-        let op_type = OperationType::Update("key".to_string(), "new_value".to_string().as_bytes().to_vec());
+        let op_type = OperationType::Update(
+            "key".to_string(),
+            "new_value".to_string().as_bytes().to_vec(),
+        );
         let _log2 = logger
             .log_operation(op_type.clone())
             .expect("Failed to log operation");
@@ -1277,12 +1287,16 @@ mod tests {
             .expect("Failed to create test log file");
         let mut logger = OperationLogger::new(log_file, 1);
 
-        let op_type = OperationType::Insert("key".to_string(), "value".to_string().as_bytes().to_vec());
+        let op_type =
+            OperationType::Insert("key".to_string(), "value".to_string().as_bytes().to_vec());
         let _log1 = logger
             .log_operation(op_type.clone())
             .expect("Failed to log operation");
 
-        let op_type = OperationType::Update("key".to_string(), "new_value".to_string().as_bytes().to_vec());
+        let op_type = OperationType::Update(
+            "key".to_string(),
+            "new_value".to_string().as_bytes().to_vec(),
+        );
         let log2 = logger
             .log_operation(op_type.clone())
             .expect("Failed to log operation");
@@ -1305,12 +1319,16 @@ mod tests {
             .expect("Failed to create test log file");
         let mut logger = OperationLogger::new(log_file, 1);
 
-        let op_type = OperationType::Insert("key".to_string(), "value".to_string().as_bytes().to_vec());
+        let op_type =
+            OperationType::Insert("key".to_string(), "value".to_string().as_bytes().to_vec());
         let _log1 = logger
             .log_operation(op_type.clone())
             .expect("Failed to log operation");
 
-        let op_type = OperationType::Update("key".to_string(), "new_value".to_string().as_bytes().to_vec());
+        let op_type = OperationType::Update(
+            "key".to_string(),
+            "new_value".to_string().as_bytes().to_vec(),
+        );
         let _log2 = logger
             .log_operation(op_type.clone())
             .expect("Failed to log operation");
@@ -1380,7 +1398,8 @@ mod tests {
             .expect("Failed to create test log file");
         let mut op_logger = OperationLogger::new(log_file, 1);
 
-        let op_type = OperationType::Insert("key".to_string(), "value".to_string().as_bytes().to_vec());
+        let op_type =
+            OperationType::Insert("key".to_string(), "value".to_string().as_bytes().to_vec());
 
         let log = op_logger
             .log_operation(op_type.clone())

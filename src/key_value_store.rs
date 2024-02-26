@@ -108,9 +108,7 @@ impl KeyValueStore {
             overwatch: Arc::new(Mutex::new(Overwatch::new())),
             bloom_filter: Arc::new(RwLock::new(
                 Self::load_bloom_filter_from_file(&name).or_else(
-                    |e| -> Result<BloomFilter, KeyValueError> {
-                        Ok(BloomFilter::new())
-                    },
+                    |e| -> Result<BloomFilter, KeyValueError> { Ok(BloomFilter::new()) },
                 )?,
             )),
             insert_count: Arc::new(Mutex::new(0)),
@@ -345,7 +343,10 @@ impl KeyValueStore {
             Self::decrypt_and_get_values_internal(&search, tree)
         })
     }
-    fn decrypt_and_get_values_internal(locations:&Vec<(String,usize)>, tree: &ThreadProtector<BPlusTree>)->Vec<String>{
+    fn decrypt_and_get_values_internal(
+        locations: &Vec<(String, usize)>,
+        tree: &ThreadProtector<BPlusTree>,
+    ) -> Vec<String> {
         let mut ret = vec![String::default(); locations.len()];
         for (key, value_location) in locations {
             let pager = {
@@ -384,7 +385,7 @@ impl KeyValueStore {
         overwatch: &ThreadGuard<Overwatch<String>>,
         key: &String,
         new_value: String,
-    ) -> KvResult<Option<(String,usize)>> {
+    ) -> KvResult<Option<(String, usize)>> {
         if key.len() > MAX_KEY_SIZE {
             {
                 let mut logger = logger.lock().unwrap();
@@ -418,13 +419,14 @@ impl KeyValueStore {
                 tree.update(key.clone(), &new_value)
             };
 
-            let ret = if let Some((ret_encrypted,new_location)) = update? {
-                Some(
-                    (EncryptionService::get_instance()
+            let ret = if let Some((ret_encrypted, new_location)) = update? {
+                Some((
+                    EncryptionService::get_instance()
                         .read()
                         .unwrap()
-                        .decrypt(ret_encrypted, key),new_location)
-                )
+                        .decrypt(ret_encrypted, key),
+                    new_location,
+                ))
             } else {
                 None
             };
@@ -608,7 +610,11 @@ impl KeyValueStore {
     /// returns: ComputedValue<Option<String>> (promise to the new old value of the key if it had any)
     ///
 
-    pub fn update(&mut self, key: String, new_value: String) -> ComputedValue<Option<(String,usize)>> {
+    pub fn update(
+        &mut self,
+        key: String,
+        new_value: String,
+    ) -> ComputedValue<Option<(String, usize)>> {
         let tree = Arc::clone(&self.tree);
         let logger = Arc::clone(&self.logger);
         let bloom_filter = Arc::clone(&self.bloom_filter);
@@ -658,7 +664,11 @@ impl KeyValueStore {
                         logger
                             .lock()
                             .unwrap()
-                            .log_info(if ret.is_none(){format!("{} was not found in {}", key, name)}else { format!("found {} in {}", key, name) })
+                            .log_info(if ret.is_none() {
+                                format!("{} was not found in {}", key, name)
+                            } else {
+                                format!("found {} in {}", key, name)
+                            })
                             .expect("cant log error in insert");
                         ret
                     }
@@ -905,7 +915,7 @@ mod tests {
         let mut results = vec![];
         println!("starting inserts");
 
-        for i in 0..DEFAULT_T*10_000 {
+        for i in 0..DEFAULT_T * 10_000 {
             println!("inserting i:{}", i);
             results.push(kv.insert(format!("key_{}", i), format!("value_{}", i)));
         }
@@ -915,11 +925,14 @@ mod tests {
         println!("finished inserts");
 
         let mut search_results = vec![];
-        for i in 0..DEFAULT_T*10_000 {
+        for i in 0..DEFAULT_T * 10_000 {
             println!("searching for i:{}", i);
             search_results.push(kv.search(format!("key_{}", i)));
         }
-        search_results.into_iter().enumerate().for_each(|(x,i)| assert_eq!(i.get(), Some(format!("value_{}", x))));
+        search_results
+            .into_iter()
+            .enumerate()
+            .for_each(|(x, i)| assert_eq!(i.get(), Some(format!("value_{}", x))));
         kv.erase()
     }
 }
