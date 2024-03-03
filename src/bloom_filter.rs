@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 const N: f64 = 4.0 * 1024.0 * 1024.0;
 const FPR: f64 = 0.02;
-const FPR_LN: f64 = -3.9120230054; //ln.98
+const FPR_LN: f64 = -1.6094379124341003746007593332262_f64; //ln.98
 pub const M: f64 = -(N * FPR_LN) / (LN_2 * LN_2);
 const K: f64 = (M / N) * LN_2;
 

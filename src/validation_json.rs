@@ -196,7 +196,9 @@ impl TryFrom<JsonObject> for ValidationJson {
                     }
                     "value constraint" => {
                         let value = value.as_object()?;
-                        let data = value["value"].as_object()?["data"].to_owned();
+                        let inner_value = value["value"].as_object()?;
+                        let data_type=inner_value["type"].to_owned().try_into()?;
+                        let data = JsonData::new(inner_value["data"].as_string(),data_type);
                         let order = value["order"].as_string();
                         let order = match order.as_str() {
                             "<" => Ordering::Less,

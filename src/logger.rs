@@ -479,6 +479,7 @@ impl OperationLogger {
     pub fn get_all_logs(&mut self) -> Vec<OperationLog> {
         self.get_all_logs_from_start(&0)
     }
+
 }
 pub struct GeneralLogger<T: Write> {
     output: Option<T>,
@@ -919,6 +920,13 @@ impl Logger {
 
             Ok(ret)
         }
+    }
+    pub fn get_last_inserted_key(&mut self) -> Option<String> {
+        self.op_logger.get_all_logs_from_start(&self.restorer.last_op_start).into_iter().rev()
+            .find_map(|operation_log: OperationLog| match operation_log.op_type {
+                OperationType::Insert(key, _) => Some(key),
+                _ => None,
+            })
     }
 }
 
@@ -1649,5 +1657,39 @@ mod tests {
             logger_name, NODES_FILE_ENDING, FILE_ENDING
         ))
         .expect("cant remove nodes");
+    }
+    #[test]
+    fn test_get_last_inserted_key() {
+        let logger_name = "test_logger_new".to_string();
+
+        // Create a test directory with dummy files
+        fs::write(
+            &format!("{}{}{}", logger_name, VALUES_FILE_ENDING, FILE_ENDING),
+            b"",
+        )
+            .expect("Failed to create test values file");
+        fs::write(
+            &format!("{}{}{}", logger_name, NODES_FILE_ENDING, FILE_ENDING),
+            b"",
+        )
+            .expect("Failed to create test nodes file");
+        let mut logger = Logger::new(&logger_name).expect("cant create new logger");
+        
+        let key = "le key".to_string();
+        let value = "le value".to_string().as_bytes().to_vec();
+        logger.log_insert_operation(&key, &value).unwrap();
+        assert_eq!(logger.get_last_inserted_key(), Some(key));
+
+
+        fs::remove_file(&format!(
+            "{}{}{}",
+            logger_name, VALUES_FILE_ENDING, FILE_ENDING
+        ))
+            .expect("cant remove values");
+        fs::remove_file(&format!(
+            "{}{}{}",
+            logger_name, NODES_FILE_ENDING, FILE_ENDING
+        ))
+            .expect("cant remove nodes");
     }
 }

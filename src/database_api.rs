@@ -485,6 +485,7 @@ fn read_document_from_collection(http_request: HttpRequest) -> Option<HttpRespon
         Some(internal_error_response("Db was not created"))
     }
 }
+
 //--------------------------------------------------------------------------------------------------------------------//
 fn set_up_db(db_name: String) -> Option<&'static RwLock<DataBase>> {
     let db = DataBase::new(db_name);
@@ -512,6 +513,11 @@ pub fn start_db_api(db_name: String) {
         create_new_collection,
     );
     db_server.add_route(
+        HttpMethod::OPTIONS,
+        CREATE_NEW_COLLECTION_URL,
+        |request| Some(HttpResponse::new_options_response_default()),
+    );
+    db_server.add_route(
         COLLECTIONS_INFO_METHOD,
         COLLECTIONS_INFO_URL,
         collections_info,
@@ -537,6 +543,11 @@ pub fn start_db_api(db_name: String) {
         HttpMethod::GET,
         COLLECTION_CRUD_URL,
         read_document_from_collection,
+    );
+    db_server.add_route(
+        HttpMethod::OPTIONS,
+        COLLECTION_CRUD_URL,
+        |request| Some(HttpResponse::new_options_response_default()),
     );
 
     db_server.listen();

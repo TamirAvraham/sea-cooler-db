@@ -188,11 +188,39 @@ impl HttpServer {
 }
 
 impl HttpResponse {
+    pub fn new_options_response(methods:&[HttpMethod],cache_size:u128,auth_related:bool)->HttpResponse{
+        let mut headers=HashMap::new();
+        headers.insert("Access-Control-Allow-Origin".to_string(), "*".to_string());
+        headers.insert("Access-Control-Allow-Methods".to_string(), methods.iter().map(|x|x.to_string()).collect::<Vec<String>>().join(", ").to_string());
+        headers.insert("Access-Control-Allow-Headers".to_string(), "Content-Type".to_string());
+        headers.insert("Access-Control-Max-Age".to_string(),"10000".to_string());
+        headers.insert("Access-Control-Allow-Credentials".to_string(), auth_related.to_string());
+        Self{
+            status_code: HttpStatusCode::NoContent,
+            headers,
+            body: None,
+        }
+    }
+    pub fn new_options_response_default() -> HttpResponse {
+        let mut headers=HashMap::new();
+        headers.insert("Access-Control-Allow-Origin".to_string(), "*".to_string());
+        headers.insert("Access-Control-Allow-Methods".to_string(), "GET, POST, OPTIONS, DELETE ,PUT".to_string());
+        headers.insert("Access-Control-Allow-Headers".to_string(), "Content-Type".to_string());
+        headers.insert("Access-Control-Max-Age".to_string(),"10000".to_string());
+        headers.insert("Access-Control-Allow-Credentials".to_string(), "true".to_string());
+
+        HttpResponse {
+            status_code: HttpStatusCode::NoContent,
+            headers,
+            body: None,
+        }
+
+    }
     pub fn new(status_code: HttpStatusCode, body: Option<String>) -> HttpResponse {
         let mut ret = HttpResponse {
             status_code,
             headers: HashMap::new(),
-            body: None,
+            body,
         };
         ret.headers
             .insert("Access-Control-Allow-Origin".to_string(), "*".to_string());

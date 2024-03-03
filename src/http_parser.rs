@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::fmt::Display;
+
 #[derive(Debug, PartialEq, Hash, Eq, Clone, Copy)]
 pub enum HttpParseError {
     InvalidMethod,
@@ -9,8 +11,35 @@ pub enum HttpMethod {
     POST,
     PUT,
     DELETE,
+    OPTIONS,
 }
 
+impl TryFrom<&str> for HttpMethod {
+    type Error = HttpParseError;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "GET" => Ok(HttpMethod::GET),
+            "POST" => Ok(HttpMethod::POST),
+            "PUT" => Ok(HttpMethod::PUT),
+            "DELETE" => Ok(HttpMethod::DELETE),
+            "OPTIONS" => Ok(HttpMethod::OPTIONS),
+            _ => Err(HttpParseError::InvalidMethod),
+        }
+    }
+}
+impl Display for HttpMethod {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let str = match self {
+            HttpMethod::GET => "GET".to_string(),
+            HttpMethod::POST => "POST".to_string(),
+            HttpMethod::PUT => "PUT".to_string(),
+            HttpMethod::DELETE => "DELETE".to_string(),
+            HttpMethod::OPTIONS => "OPTIONS".to_string(),
+        };
+        write!(f, "{}", str)
+    }
+}
 pub struct HttpRequest {
     pub method: HttpMethod,
     pub path: String,
@@ -84,15 +113,9 @@ pub fn parse(request_buffer: &[u8]) -> Result<HttpRequest, HttpParseError> {
         }
     })
     .unwrap_or(None);
-    let method = match method {
-        "GET" => HttpMethod::GET,
-        "POST" => HttpMethod::POST,
-        "PUT" => HttpMethod::PUT,
-        "DELETE" => HttpMethod::DELETE,
-        _ => return Err(HttpParseError::InvalidMethod),
-    };
+
     Ok(HttpRequest {
-        method,
+        method: method.try_into()?,
         path: path.to_string(),
         version: version.to_string(),
         params,

@@ -19,30 +19,32 @@ const formatConstraint=(constraint:string):[string,any]=>{
         return [constraint.toLowerCase(),true]
     }
 }
-const fromatCollectionAsJson=(collection:Collection)=>{
+const formatCollectionAsJson=(collection:Collection)=>{
     let structureObject={}
     if (collection.structure){
         for (const collectionElement of collection.structure!) {
             // @ts-ignore
             structureObject[collectionElement.name]= {
                 "type": collectionElement.type,
-                "constraint": collectionElement.constraints.map(constraint=>formatConstraint(constraint))
+                "constraints": collectionElement.constraints.map(constraint=>formatConstraint(constraint))
                     .reduce((acc,[key,value])=>{acc[key] = value; return acc;}, {} as any),
             }
         }
     }
     
-    return {
+    const ret= {
         "collection_structure":structureObject,
         "collection_name":collection.name,
     }
+    console.log(ret)
+    return ret
 }
 export const createNewCollection=async (collection:Collection,userId:number)=>{
-    await fetch(`${URL}/create_new_collection?${userId}`, {
+    await fetch(`${URL}/create_new_collection?user_id=${userId}`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         }
-        ,body:JSON.stringify(fromatCollectionAsJson(collection))
+        ,body:JSON.stringify(formatCollectionAsJson(collection))
     })
 }

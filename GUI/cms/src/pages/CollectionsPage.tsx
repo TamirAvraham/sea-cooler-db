@@ -22,7 +22,7 @@ const CollectionsView = () => {
     </div>;
 }
 export const CollectionsPage = () => {
-    const status = useSelector((state: RootState) => state.collection.status);
+    const status = useSelector((state: RootState) => state.collection.collectionsStatus);
     const error = useSelector((state: RootState) => state.collection.error);
     const dispatch = useDispatch();
 

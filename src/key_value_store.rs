@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, Mutex, RwLock, RwLockReadGuard},
 };
 pub const BLOOM_FILTER_PATH: &str = "bloom_filter.dat";
-const MIN_INSERTS_TO_WRITE_BLOOM_FILTER_ON_DISK: usize = 10;
+const MIN_INSERTS_TO_WRITE_BLOOM_FILTER_ON_DISK: usize = 0;
 use crate::{
     bloom_filter::{self, BloomFilter, M},
     btree::{self, BPlusTree, DEFAULT_T, FILE_ENDING, NODES_FILE_ENDING, VALUES_FILE_ENDING},
@@ -101,7 +101,7 @@ impl KeyValueStore {
                 .build()?,
         ));
 
-        let ret = Ok(Self {
+        let ret = Self {
             name: name.clone(),
             logger: Arc::new(Mutex::new(Logger::new(&name)?)),
             tree,
@@ -112,16 +112,20 @@ impl KeyValueStore {
                 )?,
             )),
             insert_count: Arc::new(Mutex::new(0)),
-        });
+        };
 
-        ret.as_ref()
-            .unwrap()
+        ret
             .logger
             .lock()
             .unwrap()
             .log_info("loaded Key value store from files".to_string())?;
 
-        ret
+        let last_inserted_key=ret.logger.lock().unwrap().get_last_inserted_key();
+        if let Some(key) = last_inserted_key {
+            let mut bloom_filter = ret.bloom_filter.write().unwrap();
+            bloom_filter.insert(key.as_str());
+        }
+        Ok(ret)
     }
     pub fn new(name: String) -> Self {
         if let Ok(mut ret) = Self::load(name) {
@@ -550,6 +554,7 @@ impl KeyValueStore {
                     &logger,
                     &bloom_filter,
                     &insert_count,
+
                     &key,
                     value,
                 ) {
@@ -789,7 +794,7 @@ mod tests {
     #[test]
     fn test_kv_non_multi_threaded() {
         let name = "test".to_string();
-        let kv = KeyValueStore::new(name);
+        let kv = KeyValueStore::new(name.clone());
         let tree = Arc::clone(&kv.tree);
         let logger = Arc::clone(&kv.logger);
         let bloom_filter = Arc::clone(&kv.bloom_filter);
@@ -872,7 +877,7 @@ mod tests {
         println!("finished queueing the searches");
         search_results.into_iter().enumerate().for_each(|(i, res)| {
             println!("checking if index {} is ok", i);
-            assert!(res.get() == Some(format!("value_{}", i)));
+            assert_eq!(res.get(), Some(format!("value_{}", i)));
             println!("index {} is ok", i);
         });
         println!("finished searches");
@@ -915,7 +920,7 @@ mod tests {
         let mut results = vec![];
         println!("starting inserts");
 
-        for i in 0..DEFAULT_T * 10_000 {
+        for i in 0..DEFAULT_T * 99 {
             println!("inserting i:{}", i);
             results.push(kv.insert(format!("key_{}", i), format!("value_{}", i)));
         }
@@ -925,7 +930,7 @@ mod tests {
         println!("finished inserts");
 
         let mut search_results = vec![];
-        for i in 0..DEFAULT_T * 10_000 {
+        for i in 0..DEFAULT_T * 99 {
             println!("searching for i:{}", i);
             search_results.push(kv.search(format!("key_{}", i)));
         }

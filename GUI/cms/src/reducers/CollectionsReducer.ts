@@ -6,12 +6,14 @@ import {RootState} from "./store";
 
 interface CollectionsState {
     collections?: Collection[];
-    status:AsyncStatus
+    collectionsStatus:AsyncStatus
+    createNewCollection:AsyncStatus
     error?:string
 }
 const defaultState:CollectionsState = {
     collections:undefined,
-    status:'idle',
+    collectionsStatus:'idle',
+    createNewCollection:'idle',
     error:undefined,
 }
 
@@ -33,27 +35,27 @@ const collectionsSlice=createSlice({
     },
     extraReducers:(builder)=>builder
         .addCase(getCollections.pending,(state)=>{
-            state.status='loading'
+            state.collectionsStatus='loading'
         })
         .addCase(getCollections.fulfilled,(state, action)=>{
-            state.status='complete'
+            state.collectionsStatus='complete'
             state.collections=action.payload
         })
         .addCase(getCollections.rejected,(state, action)=>{
-            state.status='error'
+            state.collectionsStatus='error'
             state.error=action.error.message
         }).addCase(
             createCollection.fulfilled,(state,action)=>{
-                state.status='complete'
+                state.createNewCollection='complete'
                 state.error=undefined
             }
         )
         .addCase(createCollection.rejected,(state, action)=>{
-            state.status='error'
+            state.createNewCollection='error'
             state.error=action.error.message
         })
         .addCase(createCollection.pending,(state)=>{
-            state.status='loading'
+            state.createNewCollection='loading'
         })
 })
 export default collectionsSlice.reducer

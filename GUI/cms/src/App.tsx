@@ -7,7 +7,7 @@ import {UserLoginPage} from "./pages/UserLoginPage";
 import {Header} from "./components/Header";
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import {CollectionsPage} from "./pages/CollectionsPage";
-import {CollectionCreator} from "./components/CollectionCreator";
+import CollectionCreationPage from "./pages/CollectionCreationPage";
 function App() {
   return (
     <Provider store={store}>
@@ -16,7 +16,7 @@ function App() {
             <Routes>
                 <Route path="/" element={<UserLoginPage/>}/>
                 <Route path="/collections" element={<CollectionsPage/>}/>
-                <Route path="/create_collection" element={<CollectionCreator/>}/>
+                <Route path="/create_collection" element={<CollectionCreationPage/>}/>
             </Routes>
         </Router>
 
