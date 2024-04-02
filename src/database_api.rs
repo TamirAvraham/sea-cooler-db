@@ -303,6 +303,7 @@ fn send_db_error_msg(err: DataBaseError, operation: &str) -> HttpResponse {
         DataBaseError::UserSystemError(UserSystemError::UserNotLoggedIn) => {
             invalid_request_response("User is not logged in")
         }
+        DataBaseError::CollectionNotFound => invalid_request_response("Collection not found"),
         DataBaseError::CollectionError(_)
         | DataBaseError::UserSystemError(_)
         | DataBaseError::IndexError(_)
@@ -445,7 +446,12 @@ fn get_all_collection_documents(collection_name: &String, user_id: u128) -> Http
         {
             Ok(value) => {
                 let mut json = JsonObject::new();
-                json.insert("documents".to_string(), value.into());
+                json.insert("documents".to_string(), value.into_iter().map(|(key,value)|{
+                    let mut json = JsonObject::new();
+                    json.insert("document_name".to_string(), JsonData::from_string(key));
+                    json.insert("data".to_string(), JsonData::from(value));
+                    JsonData::from(json)
+                }).collect::<JsonArray>().into());
                 HttpResponse::new_from_json(HttpStatusCode::OK, JsonSerializer::serialize(json))
             }
 
@@ -488,18 +494,20 @@ fn read_document_from_collection(http_request: HttpRequest) -> Option<HttpRespon
 
 //--------------------------------------------------------------------------------------------------------------------//
 fn set_up_db(db_name: String) -> Option<&'static RwLock<DataBase>> {
-    let db = DataBase::new(db_name);
+    let db = DataBase::new(db_name).expect("Failed to create database");
+    bind_db(db)
+}
+fn bind_db(db:DataBase) -> Option<&'static RwLock<DataBase>> {
     unsafe {
-        if let Ok(db) = db {
-            DATABASE = Some(RwLock::new(db));
-        }
+        DATABASE = Some(RwLock::new(db));
     }
     get_data_base()
 }
-pub fn start_db_api(db_name: String) {
-    if let None = set_up_db(db_name) {
-        panic!("Could not create db");
-    }
+pub fn start_db_api(db_name:&String){
+    bind_api_to_db(DataBase::new(db_name.clone()).expect("Failed to create database"));
+}
+pub fn bind_api_to_db(db: DataBase) {
+    bind_db(db);
     let mut db_server = HttpServer::new_localhost(80);
     //user parts of the api
     db_server.add_route(LOGIN_METHOD, LOGIN_URL, login);
@@ -560,7 +568,7 @@ mod tests {
     //static error
     #[test]
     fn test_user_api() {
-        start_db_api("api_test_db".to_string());
+        start_db_api(&"api_test_db".to_string());
         loop {}
     }
     #[test]

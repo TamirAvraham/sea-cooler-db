@@ -550,7 +550,7 @@ impl SkipList {
     }
     pub fn new(name: &String) -> Res<SkipList> {
         let file_handler = SkipListFileHandler::new(name)?;
-        let mut rows = file_handler.read_config_file();
+        let rows = file_handler.read_config_file();
         if let Ok(rows) = rows {
             Ok(SkipList { file_handler, rows })
         } else {

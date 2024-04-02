@@ -1,6 +1,6 @@
 import React, {useEffect, useState} from 'react';
 import {uppercaseFirstLetterInString} from "../services/constents";
-import {Collection, CollectionFiled} from "../services/DatabaseInfoService";
+import {Collection, CollectionFiled} from "../types/Collection";
 import {useDispatch, useSelector} from "react-redux";
 import {useNavigate} from "react-router-dom";
 import {createCollection} from "../reducers/CollectionsReducer";

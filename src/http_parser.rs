@@ -75,7 +75,7 @@ fn parse_params(path: &str) -> (&str, HashMap<String, String>) {
 }
 pub fn parse(request_buffer: &[u8]) -> Result<HttpRequest, HttpParseError> {
     let mut headers = HashMap::new();
-    let mut request = String::from_utf8_lossy(request_buffer);
+    let request = String::from_utf8_lossy(request_buffer);
     let mut request_lines = request.lines();
 
     let mut request_line = request_lines
@@ -91,7 +91,7 @@ pub fn parse(request_buffer: &[u8]) -> Result<HttpRequest, HttpParseError> {
         if line.is_empty() {
             break;
         }
-        let mut header_line = line.split_once(":");
+        let header_line = line.split_once(":");
         if let Some((header_name, header_value)) = header_line {
             headers.insert(
                 header_name.trim().to_string(),

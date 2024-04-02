@@ -21,6 +21,7 @@ pub enum DataBaseError {
     IndexError(SkipListError),
     PermissionError,
     UserSystemError(UserSystemError),
+    CollectionNotFound,
 }
 impl From<std::io::Error> for DataBaseError {
     fn from(value: Error) -> Self {
@@ -175,7 +176,8 @@ impl DataBase {
         user_id: u128,
     ) -> Result<(), DataBaseError> {
         self.check_permission(|user| user.can_insert(collection_name), user_id)?;
-        let collection = Self::get_mut_collection(&mut self.collections, collection_name).unwrap();
+        let collection = Self::get_mut_collection(&mut self.collections, collection_name)
+            .ok_or(DataBaseError::CollectionNotFound)?;
         collection.insert(key_name, data, &mut self.key_value_store, &mut self.index)?;
         Ok(())
     }
@@ -186,7 +188,8 @@ impl DataBase {
         user_id: u128,
     ) -> Result<Option<JsonObject>, DataBaseError> {
         self.check_permission(|user| user.can_read(collection_name), user_id)?;
-        let collection = Self::get_collection_internal(&self.collections, collection_name).unwrap();
+        let collection = Self::get_collection_internal(&self.collections, collection_name)
+            .ok_or(DataBaseError::CollectionNotFound)?;
         Ok(collection.search(key_name, &self.key_value_store)?)
     }
     pub fn delete_from_collection(
@@ -196,7 +199,8 @@ impl DataBase {
         user_id: u128,
     ) -> Result<(), DataBaseError> {
         self.check_permission(|user| user.can_delete(collection_name), user_id)?;
-        let collection = Self::get_mut_collection(&mut self.collections, collection_name).unwrap();
+        let collection = Self::get_mut_collection(&mut self.collections, collection_name)
+            .ok_or(DataBaseError::CollectionNotFound)?;
         collection.delete(&key_name, &mut self.key_value_store, &mut self.index)?;
         Ok(())
     }
@@ -208,7 +212,8 @@ impl DataBase {
         user_id: u128,
     ) -> Result<(), DataBaseError> {
         self.check_permission(|user| user.can_update(collection_name), user_id)?;
-        let collection = Self::get_mut_collection(&mut self.collections, collection_name).unwrap();
+        let collection = Self::get_mut_collection(&mut self.collections, collection_name)
+            .ok_or(DataBaseError::CollectionNotFound)?;
         collection.update(key_name, &mut self.key_value_store, &mut self.index, data)?;
         Ok(())
     }
@@ -246,9 +251,10 @@ impl DataBase {
         &self,
         collection_name: &String,
         user_id: u128,
-    ) -> Result<Vec<JsonObject>, DataBaseError> {
+    ) -> Result<Vec<(String, JsonObject)>, DataBaseError> {
         self.check_permission(|user| user.can_read(collection_name), user_id)?;
-        let collection = Self::get_collection_internal(&self.collections, collection_name).unwrap();
+        let collection = Self::get_collection_internal(&self.collections, collection_name)
+            .ok_or(DataBaseError::CollectionNotFound)?;
         Ok(collection.get_all_documents(&self.key_value_store)?)
     }
 }
@@ -563,7 +569,7 @@ mod tests {
         let result_as_json_array = result
             .clone()
             .into_iter()
-            .map(|jo| JsonData::from(jo))
+            .map(|(_, jo)| JsonData::from(jo))
             .collect::<Vec<JsonData>>();
         println!(
             "result is {}",
@@ -571,7 +577,7 @@ mod tests {
         );
         assert_eq!(result.len(), range as usize);
         for number in 0..range {
-            assert!(result.iter().any(|json| {
+            assert!(result.iter().any(|(_, json)| {
                 if let Some(data) = json.get(&format!("val_num_{}", number)) {
                     if let Ok(value) = data.as_int() {
                         return value == number;

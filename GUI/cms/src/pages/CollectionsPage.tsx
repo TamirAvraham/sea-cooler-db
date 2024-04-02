@@ -6,8 +6,7 @@ import {UnknownAction} from "@reduxjs/toolkit";
 import {CollectionTag} from "../components/CollectionTag";
 import {useEffect, useState} from "react";
 import "./CollectionsPage.css";
-import {Dialog} from "../components/Dialog";
-import {CollectionCreator} from "../components/CollectionCreator";
+
 import {useNavigate} from "react-router-dom";
 const CollectionsView = () => {
     const collections = useSelector((state: RootState) => state.collection.collections);

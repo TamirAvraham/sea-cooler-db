@@ -1,5 +1,5 @@
 import React from 'react';
-import logo from './logo.svg';
+
 import './App.css';
 import {Provider} from "react-redux";
 import {store} from "./reducers/store";
@@ -8,6 +8,8 @@ import {Header} from "./components/Header";
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import {CollectionsPage} from "./pages/CollectionsPage";
 import CollectionCreationPage from "./pages/CollectionCreationPage";
+import {CollectionPage} from "./pages/CollectionPage";
+import RecordPage from "./pages/RecordPage";
 function App() {
   return (
     <Provider store={store}>
@@ -17,6 +19,8 @@ function App() {
                 <Route path="/" element={<UserLoginPage/>}/>
                 <Route path="/collections" element={<CollectionsPage/>}/>
                 <Route path="/create_collection" element={<CollectionCreationPage/>}/>
+                <Route path="/collection/:collectionName" element={<CollectionPage/>}/>
+                <Route path="record" element={<RecordPage/>}/>
             </Routes>
         </Router>
 

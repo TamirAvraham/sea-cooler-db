@@ -1,14 +1,7 @@
 import {uppercaseFirstLetterInString, URL} from "./constents";
+import {Collection, CollectionFiled} from "../types/Collection";
 
-export interface CollectionFiled{
-    name:string
-    type:string,
-    constraints:string[]
-}
-export interface Collection{
-    name:string
-    structure?:CollectionFiled[]
-}
+
 function parseCollectionFromJsonKeyValuePair(key:string,value:any):Collection {
     if (value["structure"]===null){
         return {name:key, structure:undefined} as Collection

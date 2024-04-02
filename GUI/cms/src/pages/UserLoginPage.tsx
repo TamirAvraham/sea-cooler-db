@@ -6,6 +6,7 @@ import {UnknownAction} from "@reduxjs/toolkit";
 import {Loader} from "../components/Loader";
 import './UserLoginPage.css'
 import { useNavigate } from "react-router-dom";
+import ErrorComponent from "../components/ErrorComponent";
 
 const LoginForm = () => {
     const passwordReference=useRef<HTMLInputElement>(null)
@@ -50,7 +51,7 @@ export const UserLoginPage = () => {
     if (status === 'loading') {
         return <Loader />;
     } else if (status === 'error') {
-        return <div>Error: {error}</div>;
+        return <ErrorComponent error={error}/>;
     } else if (user) {
         return <div>Logged in id: {user.userId}</div>;
     }

@@ -891,13 +891,13 @@ impl Logger {
             })
         } else {
             let mut open_options = OpenOptions::new();
-            let mut config_file = open_options
+            let config_file = open_options
                 .create(true)
                 .write(true)
                 .read(true)
                 .open(path_to_config_file)
                 .map_err(|_| LoggerError::CantWriteToConfigFile)?;
-            let mut ret = Self {
+            let ret = Self {
                 op_logger: OperationLogger {
                     log_file: RwLock::new(
                         open_options

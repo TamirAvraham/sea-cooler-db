@@ -86,13 +86,13 @@ impl KeyValueStore {
         Ok(BloomFilter { bit_array })
     }
     /// #  Description
-    /// function to read kv from disk.
+    /// function to read kv from disk. or create it
     /// # Arguments
     ///
     /// * `name`: name of the key value store
     ///
     /// returns: Result<KeyValueStore, KeyValueError>
-    fn load(name: String) -> KvResult<Self> {
+    fn load_or_create(name: String) -> KvResult<Self> {
         let tree = Arc::new(RwLock::new(
             btree::BTreeBuilder::new()
                 .name(&name)
@@ -128,7 +128,7 @@ impl KeyValueStore {
         Ok(ret)
     }
     pub fn new(name: String) -> Self {
-        if let Ok(mut ret) = Self::load(name) {
+        if let Ok(mut ret) = Self::load_or_create(name) {
             ret.recover();
             Self::save_bloom_filter_on_file(ret.bloom_filter.clone(), &ret.name)
                 .expect("cant create kv ");
@@ -313,7 +313,7 @@ impl KeyValueStore {
         logger: &ThreadGuard<Logger>,
         start: &String,
         end: &String,
-    ) -> KvResult<Vec<String>> {
+    ) -> KvResult<Vec<(String,String)>> {
         if start.len() > MAX_KEY_SIZE {
             {
                 let mut logger = logger.lock().unwrap();
@@ -344,25 +344,27 @@ impl KeyValueStore {
                 let tree = tree.read().unwrap();
                 tree.range_search(start.clone(), end.clone())?
             };
-            Self::decrypt_and_get_values_internal(&search, tree)
+            Self::decrypt_and_get_values_internal(search, tree)
         })
     }
     fn decrypt_and_get_values_internal(
-        locations: &Vec<(String, usize)>,
+        locations: Vec<(String, usize)>,
         tree: &ThreadProtector<BPlusTree>,
-    ) -> Vec<String> {
-        let mut ret = vec![String::default(); locations.len()];
-        for (key, value_location) in locations {
-            let pager = {
+    ) -> Vec<(String,String)> {
+        let mut ret = vec![];
+        ret.reserve(locations.len());
+        for (key, value_location) in locations.into_iter() {
+            let read_value_from_pager = {
                 let tree = tree.read().unwrap();
-                tree.pager.read_value(*value_location)
+                tree.pager.read_value(value_location)
             };
-            if let Ok(value) = pager {
+            if let Ok(value) = read_value_from_pager {
+                let value=EncryptionService::get_instance()
+                    .read()
+                    .unwrap()
+                    .decrypt(value, &key);
                 ret.push(
-                    EncryptionService::get_instance()
-                        .read()
-                        .unwrap()
-                        .decrypt(value, key),
+                    (key,value)
                 );
             }
         }
@@ -699,7 +701,7 @@ impl KeyValueStore {
     /// * `end`: end of range
     ///
     /// returns: ComputedValue<Vec<String, Global>> (promise to the value pointer vector)
-    pub fn range_scan(&self, start: String, end: String) -> ComputedValue<Vec<String>> {
+    pub fn range_scan(&self, start: String, end: String) -> ComputedValue<Vec<(String,String)>> {
         let tree = Arc::clone(&self.tree);
         let logger = Arc::clone(&self.logger);
         let name = self.name.clone();

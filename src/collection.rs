@@ -96,7 +96,7 @@ impl Collection {
         value_locations: Vec<usize>,
     ) -> Result<(), CollectionError> {
         let prev_values = self.search_index(filed_name, filed_value, index)?;
-        if let Some(mut values) = prev_values {
+        if let Some(values) = prev_values {
             index.insert(
                 format!("{}_{}_{}", self.name, filed_name, filed_value),
                 values
@@ -272,10 +272,15 @@ impl Collection {
         );
         self_as_json
     }
+    fn parse_document_name(document_name: &str) -> Result<String, CollectionError> {
+        let mut splitted = document_name.split('_');
+        splitted.next();
+        Ok(splitted.next().ok_or(CollectionError::InternalError)?.to_string())
+    }
     pub fn get_all_documents(
         &self,
         kv: &KeyValueStore,
-    ) -> Result<Vec<JsonObject>, CollectionError> {
+    ) -> Result<Vec<(String,JsonObject)>, CollectionError> {
         let mut ret = vec![];
         let search_result = kv
             .range_scan(
@@ -283,9 +288,10 @@ impl Collection {
                 format!("{}{}", self.name, COLLECTION_END_CHAR),
             )
             .get();
-        for doc_as_string in search_result.into_iter() {
+        ret.reserve(search_result.len());
+        for (doc_name,doc_as_string) in search_result.into_iter() {
             if &doc_as_string != COLLECTION_PLACEMENTS_CONTENT && !doc_as_string.is_empty() {
-                ret.push(JsonDeserializer::deserialize(doc_as_string)?);
+                ret.push((Self::parse_document_name(doc_name.as_str())?,JsonDeserializer::deserialize(doc_as_string)?));
             }
         }
         Ok(ret)

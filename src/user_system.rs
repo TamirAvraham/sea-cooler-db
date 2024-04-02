@@ -59,7 +59,7 @@ impl TryFrom<&str> for DataBasePermission {
     }
 }
 impl From<JsonError> for UserSystemError {
-    fn from(value: JsonError) -> Self {
+    fn from(_value: JsonError) -> Self {
         UserSystemError::ImproperJsonStructure
     }
 }
@@ -485,7 +485,7 @@ impl UserSystem {
         if self.is_user_logged_in(&username) {
             return Err(UserSystemError::UserAlreadyLoggedIn);
         }
-        if let Ok(e) = self.get_user_from_db(&username, kv) {
+        if let Ok(_) = self.get_user_from_db(&username, kv) {
             return Err(UserSystemError::UserAlreadyExists);
         }
         let user = User::new(username.clone(), password, user_permissions);

@@ -176,7 +176,7 @@ impl HttpServer {
             let listener = TcpListener::bind(format!("{}:{}", host, port)).unwrap();
             let router = router.clone();
             for stream in listener.incoming() {
-                if let Ok(mut stream) = stream {
+                if let Ok(stream) = stream {
                     let router = router.clone();
                     ThreadPool::get_instance().execute(move || {
                         Self::handle_connection(&router, stream);

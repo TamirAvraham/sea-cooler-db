@@ -234,7 +234,7 @@ impl FileCache {
 
         //critical section
         {
-            let mut file = self
+            let file = self
                 .file
                 .write()
                 .map_err(map_err(Error::CantWriteNode(node.page_id)))?;
