@@ -18,7 +18,7 @@ pub const SIZE_OF_USIZE: usize = size_of::<usize>();
 const EMPTY_PAGE: [u8; PAGE_SIZE] = [0; PAGE_SIZE];
 /*
 value structure
-[value_len - 8b][parent_id - 8b][key_location -8b][value - value_len b]
+[value_len - 8b][value - value_len b]
  */
 
 pub const NODE_TYPE_OFFSET: usize = 0;

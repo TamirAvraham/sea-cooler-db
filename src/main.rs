@@ -22,14 +22,55 @@ mod thread_pool;
 mod user_system;
 mod validation_json;
 
+use crate::collection::CollectionError;
 use crate::database::{DataBase, DataBaseError};
 use crate::database_api::{bind_api_to_db, start_db_api};
 use crate::json::{JsonData, JsonObject, JsonSerializer};
 use crate::key_value_store::KeyValueStore;
-use crate::user_system::UserType;
+use crate::user_system::{UserSystemError, UserType};
+use crate::validation_json::JsonValidationError;
+use log::log;
 use std::io::Write;
 use std::{env, io};
 
+const SPECIAL_CHARS: &str = "!\"#$%&'*+,./:;<=>?@[\\]^_`{|}~";
+
+fn map_db_error(data_base_error: DataBaseError) -> String {
+    return match data_base_error {
+        DataBaseError::CollectionError(CollectionError::InvalidData(
+            JsonValidationError::IsNull,
+        )) => ("Json was null").to_string(),
+        DataBaseError::CollectionError(CollectionError::InvalidData(
+            JsonValidationError::ValueDoesNotMeetConstraint(x, y, o),
+        )) => format!("Value {} does not meet constraint {} {:?}", x, y, o),
+
+        DataBaseError::CollectionError(CollectionError::InvalidData(
+            JsonValidationError::MissingProperty(prop),
+        )) => format!("Missing property {}", prop),
+        DataBaseError::CollectionError(CollectionError::InvalidData(
+            JsonValidationError::IncorrectType(var_name, var_type, needed_type),
+        )) => format!(
+            "Incorrect type {} expected {} at {} ",
+            var_type, needed_type, var_name
+        ),
+        DataBaseError::CollectionError(CollectionError::InvalidData(
+            JsonValidationError::ValueAllReadyExists(v),
+        )) => (format!("Value {} all ready exists", v)),
+        DataBaseError::JsonError(_) => ("Json was not formatted correctly").to_string(),
+        DataBaseError::PermissionError
+        | DataBaseError::UserSystemError(UserSystemError::PermissionError) => {
+            "User does not have permission to do this action in current collection".to_string()
+        }
+        DataBaseError::UserSystemError(UserSystemError::UserNotLoggedIn) => {
+            ("User is not logged in").to_string()
+        }
+        DataBaseError::CollectionNotFound => ("Collection not found").to_string(),
+        DataBaseError::CollectionError(_)
+        | DataBaseError::UserSystemError(_)
+        | DataBaseError::IndexError(_)
+        | DataBaseError::FileError(_) => "Internal Db Error".to_string(),
+    };
+}
 fn get_user_input() -> String {
     let mut input_string = String::new();
 
@@ -38,7 +79,22 @@ fn get_user_input() -> String {
     io::stdin()
         .read_line(&mut input_string)
         .expect("Failed to read line");
-    input_string
+
+    if input_string.is_empty() {
+        println!("empty input. plz enter text");
+        get_user_input()
+    } else {
+        input_string
+    }
+}
+fn validate_username(username: &str) -> bool {
+    username.len() > 2
+        && username.len() < 14
+        && !username.contains(SPECIAL_CHARS)
+        && !username.contains(' ')
+}
+fn validate_password(password: &str) -> bool {
+    password.len() > 4
 }
 fn get_json_from_user(info: bool, tab_count: u8) -> JsonObject {
     let mut ret = JsonObject::new();
@@ -105,9 +161,7 @@ fn help() {
 
 fn main() {
     let mut user_input = "".to_string();
-    let mut db = DataBase::new(env::args()
-        .nth(1)
-        .map_or("seacoller".to_string(), |s| s))
+    let mut db = DataBase::new(env::args().nth(1).map_or("seacoller".to_string(), |s| s))
         .expect("Failed to create database");
     let mut user_id = 0;
     while user_input != "exit" {
@@ -176,7 +230,7 @@ fn update(db: &mut DataBase, user_id: u128) {
     print!("enter new value:");
     let value = get_json_from_user(true, 0);
     db.update_collection(&collection, key.clone(), value, user_id)
-        .unwrap_or_else(|err| println!("cant update {} in {} because",key,collection));;
+        .unwrap_or_else(|err| println!("cant update {} in {} because {}", key, collection,map_db_error(err)));
 }
 
 fn delete(db: &mut DataBase, user_id: u128) {
@@ -184,7 +238,7 @@ fn delete(db: &mut DataBase, user_id: u128) {
     print!("enter document name:");
     let key = get_user_input();
     db.delete_from_collection(&collection, key.clone(), user_id)
-        .unwrap_or_else(|err| println!("cant delete {} from {} because",key,collection));
+        .unwrap_or_else(|err| println!("cant delete {} from {} because {}", key, collection,map_db_error(err)));
 }
 
 fn select(db: &mut DataBase, user_id: u128) {
@@ -193,8 +247,8 @@ fn select(db: &mut DataBase, user_id: u128) {
     let key = get_user_input();
     let result = db
         .get_from_collection(&collection, key.clone(), user_id)
-        .unwrap_or_else(|err|{
-            println!("cant select {} from {} because",key,collection);
+        .unwrap_or_else(|err| {
+            println!("cant select {} from {} because {}", key, collection,map_db_error(err));
             None
         });
     if let Some(value) = result {
@@ -211,9 +265,8 @@ fn insert(db: &mut DataBase, user_id: u128) {
     print!("enter value:");
     let value = get_json_from_user(true, 0);
     db.insert_into_collection(&collection, key.clone(), value, user_id)
-        .unwrap_or_else(|err|{
-            println!("cant insert {} into {} because", key, collection);
-
+        .unwrap_or_else(|err| {
+            println!("cant insert {} into {} because {}", key, collection,map_db_error(err));
         });
 }
 fn select_collection() -> String {
@@ -225,15 +278,24 @@ fn create_basic_collection(db: &mut DataBase, user_id: u128) {
     print!("enter collection name:");
     let name = get_user_input();
     db.create_collection(name, None, user_id)
-        .expect("Failed to create collection");
+        .unwrap_or_else(|err| println!("cant create basic collection because {}",map_db_error(err)));
 }
 fn login(db: &mut DataBase) -> u128 {
     print!("enter username:");
     let username = get_user_input();
+    if !validate_username(&username) {
+        println!("username is not valid it needs to be between 2 and 14 characters and contain no special characters. try again");
+        return login(db);
+    }
     print!("enter password:");
     let password = get_user_input();
+    if !validate_password(&password) {
+        println!("password is less then 4 characters long. try again");
+        return login(db);
+    }
+
     db.login(username, password).unwrap_or_else(|err| {
-        println!("login failed since {:?}", err);
+        println!("login failed since {}", map_db_error(err));
         0
     })
 }
@@ -242,7 +304,7 @@ fn register(db: &mut DataBase) -> u128 {
     let username = get_user_input();
     print!("enter password:");
     let password = get_user_input();
-    print!("enter permissions level: ");
+    print!("enter permissions level(admin,user,guest): ");
     let permissions = match get_user_input().to_lowercase().trim() {
         "admin" => Ok(UserType::Admin),
         "user" => Ok(UserType::User),
@@ -251,11 +313,19 @@ fn register(db: &mut DataBase) -> u128 {
     }
     .expect("invalid permissions level");
     db.signup(username.clone(), password, permissions.get_permissions())
-        .unwrap_or_else(|err|{
-            println!("cant create new user {} because {:?}",username,err);
+        .unwrap_or_else(|err| {
+            println!("cant create new user {} because {}", username, map_db_error(err));
             0
         })
 }
 fn logout(db: &mut DataBase, user_id: u128) {
     db.logout(user_id);
+}
+
+#[cfg(test)]
+mod tests{
+    #[test]
+    fn test_validate_username() {
+        
+    }
 }
