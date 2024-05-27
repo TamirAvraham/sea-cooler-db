@@ -32,6 +32,7 @@ use crate::validation_json::JsonValidationError;
 use log::log;
 use std::io::Write;
 use std::{env, io};
+use crate::error::map_err;
 
 const SPECIAL_CHARS: &str = "!\"#$%&'*+,./:;<=>?@[\\]^_`{|}~";
 
@@ -65,6 +66,9 @@ fn map_db_error(data_base_error: DataBaseError) -> String {
             ("User is not logged in").to_string()
         }
         DataBaseError::CollectionNotFound => ("Collection not found").to_string(),
+        DataBaseError::UserSystemError(UserSystemError::UserAlreadyExists) => "User with this username already exists".to_string(),
+        DataBaseError::UserSystemError(UserSystemError::IncorrectPassword) => "Incorrect password".to_string(),
+        DataBaseError::UserSystemError(UserSystemError::UserDoesNotExist) => "This user does not exist".to_string(),
         DataBaseError::CollectionError(_)
         | DataBaseError::UserSystemError(_)
         | DataBaseError::IndexError(_)
@@ -84,7 +88,7 @@ fn get_user_input() -> String {
         println!("empty input. plz enter text");
         get_user_input()
     } else {
-        input_string
+        input_string.trim().to_string()
     }
 }
 fn validate_username(username: &str) -> bool {
@@ -102,17 +106,18 @@ fn get_json_from_user(info: bool, tab_count: u8) -> JsonObject {
         println!("start entering your json key value pairs in this format");
         println!("[key]:[value]\n example pair : yoni:123 will translate to \"yoni\": 123");
         println!("enter }} to end or [key]:{{ to start creating another object");
+        print!("{{\n");
     }
     for _ in 0..tab_count {
         print!("\t");
     }
-    print!("{{\n");
+    let mut error=false;
     let tab_count = tab_count + 1;
     loop {
         for _ in 0..tab_count {
             print!("\t");
         }
-        let user_input = get_user_input();
+        let user_input = get_user_input().trim().to_string();
         if user_input == "}" {
             break;
         } else if user_input.chars().last() == Some('{') {
@@ -125,8 +130,15 @@ fn get_json_from_user(info: bool, tab_count: u8) -> JsonObject {
             let value = split_input.next().unwrap();
             ret.insert(
                 key.to_string(),
-                JsonData::infer_from_string(value.to_string()).unwrap(),
+                JsonData::infer_from_string(value.trim().to_string()).unwrap_or_else(|e|{
+                    println!("invalid json\n try again");
+                    error=true;
+                    JsonData::new_null()
+                }),
             );
+            if error {
+                return get_json_from_user(true,tab_count-1);
+            }
         }
     }
     ret
@@ -164,6 +176,7 @@ fn main() {
     let mut db = DataBase::new(env::args().nth(1).map_or("seacoller".to_string(), |s| s))
         .expect("Failed to create database");
     let mut user_id = 0;
+
     while user_input != "exit" {
         if user_id != 0 {
             print!("enter command or help to list commands:\t");
@@ -208,12 +221,14 @@ fn main() {
         bind_api_to_db(db);
         loop {}
     } else if user_input == "erase" {
-        db.erase(user_id).expect("cant erase");
+        db.erase(user_id).unwrap_or_else(|e|{
+            println!("cant erase because {}",map_db_error(e));
+        });
     }
 }
 
 fn select_all(db: &mut DataBase, user_id: u128) {
-    let collection = select_collection();
+    let collection = select_collection(db);
     println!("documents in {} are:", collection);
     db.get_all_documents_from_collection(&collection, user_id)
         .expect("cant get from collection")
@@ -224,7 +239,7 @@ fn select_all(db: &mut DataBase, user_id: u128) {
         })
 }
 fn update(db: &mut DataBase, user_id: u128) {
-    let collection = select_collection();
+    let collection = select_collection(db);
     print!("enter document name:");
     let key = get_user_input();
     print!("enter new value:");
@@ -234,7 +249,7 @@ fn update(db: &mut DataBase, user_id: u128) {
 }
 
 fn delete(db: &mut DataBase, user_id: u128) {
-    let collection = select_collection();
+    let collection = select_collection(db);
     print!("enter document name:");
     let key = get_user_input();
     db.delete_from_collection(&collection, key.clone(), user_id)
@@ -242,7 +257,7 @@ fn delete(db: &mut DataBase, user_id: u128) {
 }
 
 fn select(db: &mut DataBase, user_id: u128) {
-    let collection = select_collection();
+    let collection = select_collection(db);
     print!("enter document name:");
     let key = get_user_input();
     let result = db
@@ -259,7 +274,7 @@ fn select(db: &mut DataBase, user_id: u128) {
 }
 
 fn insert(db: &mut DataBase, user_id: u128) {
-    let collection = select_collection();
+    let collection = select_collection(db);
     print!("enter document name:");
     let key = get_user_input();
     print!("enter value:");
@@ -269,9 +284,16 @@ fn insert(db: &mut DataBase, user_id: u128) {
             println!("cant insert {} into {} because {}", key, collection,map_db_error(err));
         });
 }
-fn select_collection() -> String {
-    print!("enter collection name:");
-    get_user_input()
+fn select_collection(db:&DataBase) -> String {
+    print!("enter collection name or collections to list all collections in the database:");
+    let ret =get_user_input();
+    if ret=="collections" {
+        println!("collections: ");
+        db.get_all_collections().iter().for_each(|collection| println!("\tname: {} structured: {}",collection.name,collection.structure.is_some()));
+        select_collection(db)
+    } else {
+        ret
+    }
 }
 
 fn create_basic_collection(db: &mut DataBase, user_id: u128) {
@@ -302,8 +324,13 @@ fn login(db: &mut DataBase) -> u128 {
 fn register(db: &mut DataBase) -> u128 {
     print!("enter username:");
     let username = get_user_input();
+    if !validate_username(username.as_str()) {
+        println!("username is not ok\n try again");
+        return register(db);
+    }
     print!("enter password:");
     let password = get_user_input();
+    if !validate_password(password.as_str()) { return register(db); }
     print!("enter permissions level(admin,user,guest): ");
     let permissions = match get_user_input().to_lowercase().trim() {
         "admin" => Ok(UserType::Admin),
@@ -324,8 +351,14 @@ fn logout(db: &mut DataBase, user_id: u128) {
 
 #[cfg(test)]
 mod tests{
+    use crate::{get_json_from_user, validate_username};
+
     #[test]
     fn test_validate_username() {
-        
+        let invalid_username="n";
+        assert!(
+            !validate_username(invalid_username) && validate_username("user") && !validate_username("1234123123123123123123") && !validate_username("h i")
+        )
     }
+
 }

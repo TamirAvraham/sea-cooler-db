@@ -1171,4 +1171,19 @@ mod tests {
 
         println!("json is: \n{}", JsonSerializer::serialize(json));
     }
+    #[test]
+    fn test_get_type() {
+        "true".as_bytes().iter().for_each(|x| print!("{x} "));
+        print!("\n");
+        assert_eq!(JsonType::get_type(&"null".to_string()), Ok(JsonType::Null));
+        assert_eq!(JsonType::get_type(&"undefined".to_string()), Ok(JsonType::Null));
+        assert_eq!(JsonType::get_type(&"true".to_string()), Ok(JsonType::Boolean));
+        assert_eq!(JsonType::get_type(&"false".to_string()), Ok(JsonType::Boolean));
+        assert_eq!(JsonType::get_type(&"12345".to_string()), Ok(JsonType::Integer));
+        assert_eq!(JsonType::get_type(&"123.45".to_string()), Ok(JsonType::Float));
+        assert_eq!(JsonType::get_type(&"[".to_string()), Ok(JsonType::Array));
+        assert_eq!(JsonType::get_type(&"\"string\"".to_string()), Ok(JsonType::String));
+        assert_eq!(JsonType::get_type(&"{".to_string()), Ok(JsonType::Object));
+        assert_eq!(JsonType::get_type(&"invalid".to_string()), Err(JsonError::ParseError));
+    }
 }

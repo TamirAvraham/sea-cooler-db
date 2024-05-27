@@ -257,6 +257,8 @@ impl Collection {
                     )?;
                 }
             }
+        }else {
+            let _= value_location.get();
         }
 
         Ok(())
